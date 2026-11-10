@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=4';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links

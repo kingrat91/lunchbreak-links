@@ -7,5 +7,5 @@
 // what each person may read or change is enforced by the database rules
 // in supabase/schema.sql. Never put a "secret" or "service_role" key here.
 
-export const SUPABASE_URL = '';
-export const SUPABASE_KEY = '';
+export const SUPABASE_URL = 'https://sylpdawphiwwiaicvbei.supabase.co';
+export const SUPABASE_KEY = 'sb_publishable_hho1oJSUkengqWzFp9NP5A_mhdaAFxZ';
