@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=8';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=13';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
@@ -8,28 +8,63 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=8';
 
 const COLORS = ['#8b7cf6', '#f5a524', '#34c77b', '#f0527a', '#4c9df8', '#22c1d6', '#e879f9', '#a3a3ad',
   '#ff7a59', '#f7d038', '#a8e04a', '#5eead4', '#6b7cff', '#ffb3c7'];
-const EMOJIS = ['', '🦊', '🐼', '🐱', '🐶', '🐻', '🐨', '🐯', '🦁', '🐵', '🐸', '🐧', '🦉', '🦄', '🐰', '🦝', '🦔', '🦦', '🦥', '🐢', '🦖', '🐳', '🐝',
-  '🌵', '🍕', '🎮', '🎧', '🚀', '☕', '🍜', '🎲'];
+const EMOJIS = ['', '🦊', '🐼', '🐱', '🐶', '🐻', '🐨', '🐯', '🦁', '🐵', '🐸', '🐧', '🦉', '🦄', '🐰', '🦝', '🐀', '🦔', '🦦', '🦥', '🐢', '🦖', '🐳', '🐝',
+  '🌵', '🍀', '🌈', '🌙', '⚡', '🔥', '🪐',
+  '👻', '👽', '🧙‍♀️', '🧛', '🧟', '🎃', '💀', '🦇', '👹',
+  '🍕', '🍔', '🌮', '🍟', '🍩', '🍪', '🍣'];
 
-// Welcome lines. NAME is replaced with the person's first name. One is picked when the
-// page loads or someone signs in, and again when the time of day moves on.
-const GREETINGS = {
-  any: ['Take a break, NAME.', "Heeere's NAME!", 'All work and no play, NAME?', "Don't be a dull Jack, NAME.",
-    "You've earned this, NAME.", 'The tickets can wait, NAME.', 'Five more minutes, NAME.', 'Play first, NAME.',
-    'Step away from the keyboard, NAME.'],
-  afternoon: ['Time to recharge, NAME.'],                    // 14:00 to 17:00
-  evening: ['Still here, NAME?', 'Go home, NAME. Or play.'],  // after 17:00
+// Lines typed out under the welcome heading, one after another. NAME is replaced with
+// the person's first name. The afternoon and evening lines only join in at those hours.
+const LINES = {
+  any: ['All work and no play makes Jack a dull boy.', "Heeere's NAME!", "Don't be a dull Jack.",
+    "You've earned this.", 'The tickets can wait.', 'Five more minutes.', 'Play first.',
+    'Step away from the keyboard.',
+    'Come play with us.', 'Come play with us, NAME. Forever.', 'Room 237 is closed. Play here instead.',
+    'This counts as team building.', 'That meeting could have been a game.', "The deadline can't see you here.",
+    'Inbox zero can wait.', 'Out of office, mentally.',
+    "It's not procrastinating if it's lunch.", 'One more round.', 'Eat first. Play second. Work eventually.'],
+  afternoon: ['Time to recharge.'],              // 14:00 to 17:00
+  evening: ['Still here?', 'Go home. Or play.'],  // after 17:00
 };
-let greeting = { slot: '', line: '' };
-function greet(name) {
+const LINE_STAYS = 12000; // how long a finished line stays before the next one, in milliseconds
+
+// The typewriter keeps its place here, so the line carries on when the page redraws.
+const typer = { text: '', shown: 0, last: '', timer: 0 };
+
+function typerPaint() {
+  const el = document.querySelector('.typed');
+  if (el) el.textContent = typer.text.slice(0, typer.shown);
+}
+
+function typerNext() {
   const hr = new Date().getHours();
-  const slot = hr < 11 ? 'morning' : hr < 14 ? 'lunch' : hr < 17 ? 'afternoon' : 'evening';
-  if (greeting.slot !== slot) {
-    const pick = (list) => list[Math.floor(Math.random() * list.length)];
-    const timely = GREETINGS[slot]; // mornings and lunchtime have no lines of their own
-    greeting = { slot, line: pick(timely && Math.random() < 0.5 ? timely : GREETINGS.any) };
+  const pool = [...LINES.any, ...(hr >= 17 ? LINES.evening : hr >= 14 ? LINES.afternoon : [])].filter((l) => l !== typer.last);
+  const name = S.me ? S.me.display_name.trim().split(/\s+/)[0] : '';
+  typer.last = pool[Math.floor(Math.random() * pool.length)];
+  typer.text = typer.last.replace('NAME', name);
+  typer.shown = 0;
+}
+
+function typerStart() {
+  if (typer.timer) return;
+  typerNext();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { // no typing: just swap the line now and then
+    typer.shown = typer.text.length; typerPaint();
+    typer.timer = setInterval(() => { typerNext(); typer.shown = typer.text.length; typerPaint(); }, LINE_STAYS + 3000);
+    return;
   }
-  return greeting.line.replace('NAME', name);
+  let erasing = false;
+  const step = () => {
+    let wait;
+    if (document.hidden) wait = 1000;                       // rest while the tab is in the background
+    else if (!erasing && typer.shown < typer.text.length) { typer.shown++; wait = 50 + Math.random() * 80; }
+    else if (!erasing) { erasing = true; wait = LINE_STAYS; }
+    else if (typer.shown > 0) { typer.shown--; wait = 22; }
+    else { erasing = false; typerNext(); wait = 600; }
+    typerPaint();
+    typer.timer = setTimeout(step, wait);
+  };
+  step();
 }
 
 const ICONS = {
@@ -339,7 +374,6 @@ async function refresh() {
     const user = await api.user();
     if (!user) {
       S.mode = 'signin'; S.me = null;
-      greeting = { slot: '', line: '' }; // a fresh welcome line after the next sign-in
       chatStop();
       return render();
     }
@@ -469,11 +503,11 @@ function viewLinks() {
   };
 
   drawChips(); drawGrid();
-  const n = S.links.length;
+  typerStart();
   return h('main', null,
     h('section', { class: 'hero' },
-      h('h1', null, greet(S.me.display_name.trim().split(/\s+/)[0])),
-      h('p', null, n === 1 ? '1 link shared by the team.' : n + ' links shared by the team.'),
+      h('h1', null, 'Take a break, ' + S.me.display_name.trim().split(/\s+/)[0] + '.'),
+      h('p', { class: 'typed', 'aria-hidden': 'true' }, typer.text.slice(0, typer.shown)),
       h('label', { class: 'search' }, icon('search'),
         h('input', { type: 'search', placeholder: 'Search links', 'aria-label': 'Search links', value: S.q,
           oninput: (e) => { S.q = e.target.value; drawGrid(); } }))),
@@ -817,61 +851,6 @@ function chatDraw(toBottom) {
   document.querySelector('.chat-btn')?.classList.toggle('has-new', chat.unread);
 }
 
-/* ---------- background typewriter ---------- */
-// Quietly types a line at random spots behind the page, then lets it fade.
-// Purely decorative: hidden from screen readers, never clickable, and it stays
-// still for people who have asked their device for less motion.
-
-const TYPED_LINE = 'All work and no play makes Jack a dull boy';
-
-function backgroundTyping() {
-  const layer = document.getElementById('bg');
-  if (!layer) return;
-  const rand = (a, b) => a + Math.random() * (b - a);
-  // Pick a spot that is not on top of a line that is already showing.
-  const place = (el) => {
-    const taken = [...layer.children].map((c) => parseFloat(c.style.top));
-    let top = rand(4, 86);
-    for (let n = 0; n < 12 && taken.some((t) => Math.abs(t - top) < 16); n++) top = rand(4, 86);
-    el.style.left = rand(2, 68) + '%';
-    el.style.top = top + '%';
-    el.style.fontSize = rand(13, 16) + 'px';
-  };
-
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    for (let i = 0; i < 4; i++) {
-      const el = document.createElement('div');
-      el.className = 'tw';
-      el.textContent = TYPED_LINE;
-      place(el);
-      layer.append(el);
-    }
-    return;
-  }
-
-  const MAX = 3;
-  let live = 0;
-  function spawn() {
-    if (document.hidden || live >= MAX) return;
-    live++;
-    const el = document.createElement('div');
-    el.className = 'tw typing';
-    place(el);
-    layer.append(el);
-    const text = Array(1 + Math.floor(rand(0, 3))).fill(TYPED_LINE).join('\n');
-    let i = 0;
-    (function key() {
-      el.textContent = text.slice(0, ++i);
-      if (i < text.length) return setTimeout(key, text[i - 1] === '\n' ? 500 : rand(45, 130));
-      el.classList.remove('typing');
-      setTimeout(() => el.classList.add('gone'), 5000);
-      setTimeout(() => { el.remove(); live--; }, 8000);
-    })();
-  }
-  spawn();
-  setInterval(spawn, 3500);
-}
-
 /* ---------- start ---------- */
 
 async function start() {
@@ -889,5 +868,4 @@ async function start() {
   await refresh();
 }
 
-backgroundTyping();
 start();
