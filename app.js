@@ -15,6 +15,9 @@ const ICONS = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
   out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
 };
 
@@ -82,6 +85,39 @@ function cleanUrl(raw) {
   } catch { return null; }
 }
 
+function clock(iso) {
+  const d = new Date(iso);
+  const t = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === new Date().toDateString()) return t;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + t;
+}
+
+/** Turns web addresses inside a chat message into clickable links. Everything else stays plain text. */
+function linkify(text) {
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+    const raw = m[0].replace(/[.,!?;:)\]]+$/, '');
+    const href = cleanUrl(raw);
+    if (!href) continue;
+    out.push(text.slice(last, m.index), h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, raw));
+    last = m.index + raw.length;
+  }
+  out.push(text.slice(last));
+  return out;
+}
+
+/** If Google sign-in was refused, the reason comes back in the page address. Read it, then tidy the address. */
+function signInProblem() {
+  const p = new URLSearchParams(location.hash.replace(/^#/, '') + '&' + location.search.replace(/^\?/, ''));
+  const d = p.get('error_description') || p.get('error');
+  if (!d) return '';
+  history.replaceState(null, '', location.pathname);
+  return /saving new user|not been invited|signups? not allowed/i.test(d)
+    ? "That Google account isn't on the invite list. Ask the admin for an invitation, then try again."
+    : "Sign-in didn't complete. Please try again.";
+}
+
 function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
@@ -122,6 +158,11 @@ function previewApi() {
       { id: 'l5', name: 'Gartic Phone', url: 'https://garticphone.com/', category_id: 'c1', added_by: 'u1', created_at: at(9) },
       { id: 'l6', name: 'MDN Web Docs', url: 'https://developer.mozilla.org/', category_id: 'c3', added_by: 'u3', created_at: at(14) },
     ],
+    messages: [
+      { id: 1, body: 'Anyone up for a round of Skribbl at 13:00?', author: 'u2', created_at: at(0.08) },
+      { id: 2, body: "I'm in 🙌", author: 'u1', created_at: at(0.07) },
+      { id: 3, body: 'Me too. Also added a good one for the UX folks: https://lawsofux.com/', author: 'u3', created_at: at(0.05) },
+    ],
   };
   const copy = (x) => JSON.parse(JSON.stringify(x));
   const pub = ({ email, ...p }) => p;
@@ -131,12 +172,22 @@ function previewApi() {
     preview: true,
     onAuth() {},
     async user() { return signedIn ? { id: 'u1' } : null; },
-    async sendLink() {},
-    async verifyCode() { signedIn = true; },
+    async signIn() { signedIn = true; },
     async signOut() { signedIn = false; },
     async load() {
       return copy({ me: pub(db.profiles[0]), profiles: db.profiles.map(pub), categories: db.categories, links: db.links });
     },
+    async loadMessages(before) {
+      const all = db.messages.filter((m) => !before || m.id < before);
+      return copy({ msgs: all.slice(-50), hasMore: all.length > 50 });
+    },
+    async sendMessage(body) {
+      const m = { id: ++n, body, author: 'u1', created_at: new Date().toISOString() };
+      db.messages.push(m);
+      return copy(m);
+    },
+    async deleteMessage(mid) { db.messages = db.messages.filter((m) => m.id !== mid); },
+    subscribeMessages() { return () => {}; },
     async addLink(l) { db.links.unshift({ id: id(), ...l, added_by: 'u1', created_at: new Date().toISOString() }); },
     async updateLink(lid, l) { Object.assign(db.links.find((x) => x.id === lid), l); },
     async deleteLink(lid) { db.links = db.links.filter((x) => x.id !== lid); },
@@ -181,10 +232,6 @@ async function supabaseApi() {
     if (e?.code === '23505') return 'A category with that name already exists.';
     if (e?.code === '23503') return 'That category still has links. Move them first.';
     if (e?.code === '42501' || m.includes('row-level security')) return "You don't have permission to do that.";
-    if (m.includes('database error saving new user') || m.includes('not been invited') || m.includes('signups not allowed'))
-      return "That address isn't on the invite list. Ask the admin for an invitation.";
-    if (m.includes('rate limit') || e?.status === 429) return 'Too many sign-in emails just now. Please try again in a few minutes.';
-    if (m.includes('expired') || m.includes('invalid')) return 'That code is wrong or has expired. Request a new one.';
     if (m.includes('failed to fetch')) return "Can't reach the server. Check your connection and try again.";
     return e?.message || 'Something went wrong.';
   };
@@ -195,10 +242,9 @@ async function supabaseApi() {
     preview: false,
     onAuth(cb) { sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' || ev === 'SIGNED_OUT') setTimeout(cb, 0); }); },
     async user() { const u = await uid(); return u ? { id: u } : null; },
-    async sendLink(email) {
-      ok(await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } }));
+    async signIn() {
+      ok(await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } }));
     },
-    async verifyCode(email, token) { ok(await sb.auth.verifyOtp({ email, token, type: 'email' })); },
     async signOut() { await sb.auth.signOut(); },
     async load() {
       const me = await uid();
@@ -208,6 +254,24 @@ async function supabaseApi() {
         sb.from('links').select('id, name, url, category_id, added_by, created_at').order('created_at', { ascending: false }).then(ok),
       ]);
       return { me: profiles.find((p) => p.id === me) || null, profiles, categories, links };
+    },
+    async loadMessages(before) {
+      let q = sb.from('messages').select('id, body, author, created_at').order('id', { ascending: false }).limit(51);
+      if (before) q = q.lt('id', before);
+      const rows = ok(await q);
+      return { msgs: rows.slice(0, 50).reverse(), hasMore: rows.length > 50 };
+    },
+    async sendMessage(body) {
+      return ok(await sb.from('messages').insert({ body }).select('id, body, author, created_at').single());
+    },
+    async deleteMessage(id) { ok(await sb.from('messages').delete().eq('id', id)); },
+    /** Live updates: calls onInsert / onDelete whenever anyone posts or deletes a message. */
+    subscribeMessages(onInsert, onDelete) {
+      const ch = sb.channel('chat')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => onInsert(p.new))
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (p) => onDelete(p.old.id))
+        .subscribe();
+      return () => sb.removeChannel(ch);
     },
     async addLink(l) { ok(await sb.from('links').insert(l)); },
     async updateLink(id, l) { ok(await sb.from('links').update(l).eq('id', id)); },
@@ -237,11 +301,11 @@ async function supabaseApi() {
 const $app = document.getElementById('app');
 let api;
 const S = {
-  mode: 'loading',           // loading | signin | sent | removed | error | app
+  mode: 'loading',           // loading | signin | removed | error | app
   view: 'links',             // links | admin
   me: null, profiles: [], categories: [], links: [],
   admin: { members: [], pending: [] },
-  filter: 'all', q: '', email: '', error: '',
+  filter: 'all', q: '', error: '', signInError: '',
 };
 
 const byId = (list, id) => list.find((x) => x.id === id);
@@ -251,18 +315,19 @@ async function refresh() {
   try {
     const user = await api.user();
     if (!user) {
-      if (S.mode !== 'sent') S.mode = 'signin';
-      S.me = null;
+      S.mode = 'signin'; S.me = null;
+      chatStop();
       return render();
     }
     const d = await api.load();
-    if (!d.me || !d.me.active) { S.mode = 'removed'; return render(); }
+    if (!d.me || !d.me.active) { S.mode = 'removed'; chatStop(); return render(); }
     Object.assign(S, { mode: 'app', me: d.me, profiles: d.profiles, categories: d.categories, links: d.links });
     if (S.filter !== 'all' && !byId(S.categories, S.filter)) S.filter = 'all';
     if (S.view === 'admin') {
       if (S.me.is_admin) S.admin = await api.adminData(); else S.view = 'links';
     }
     render();
+    chatStart();
   } catch (e) {
     S.mode = 'error'; S.error = e.message; render();
   }
@@ -277,7 +342,7 @@ async function act(fn, done) {
 }
 
 function render() {
-  const views = { signin: viewSignin, sent: viewSent, removed: viewRemoved, error: viewError, app: viewApp };
+  const views = { signin: viewSignin, removed: viewRemoved, error: viewError, app: viewApp };
   $app.replaceChildren((views[S.mode] || (() => h('p', { class: 'loading' }, 'Loading…')))());
 }
 
@@ -286,53 +351,24 @@ function render() {
 function brandMark() { return h('div', { class: 'brand-mark' }, icon('link')); }
 
 function viewSignin() {
-  const err = h('p', { class: 'err', role: 'alert' });
-  const email = h('input', { class: 'input', type: 'email', required: true, autocomplete: 'email', placeholder: 'you@company.com', value: S.email });
-  const btn = h('button', { class: 'btn primary', type: 'submit' }, 'Send sign-in link');
-  const form = h('form', {
-    novalidate: true,
-    onsubmit: async (e) => {
-      e.preventDefault();
-      const v = email.value.trim().toLowerCase();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { err.textContent = 'Enter your email address.'; return; }
-      btn.disabled = true; btn.textContent = 'Sending…'; err.textContent = '';
-      try { await api.sendLink(v); S.email = v; S.mode = 'sent'; render(); }
-      catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Send sign-in link'; }
+  const err = h('p', { class: 'err', role: 'alert' }, S.signInError);
+  const btn = h('button', {
+    class: 'btn primary', type: 'button',
+    onclick: async () => {
+      btn.disabled = true; err.textContent = ''; S.signInError = '';
+      try { await api.signIn(); if (api.preview) { S.mode = 'loading'; await refresh(); } }
+      catch (ex) { err.textContent = ex.message; btn.disabled = false; }
     },
-  }, h('label', { class: 'field' }, h('span', null, 'Email'), email), err, btn);
+  }, 'Continue with Google');
 
   return h('main', { class: 'center' }, h('div', { class: 'panel' },
     brandMark(),
     h('h1', null, 'Lunchbreak Links'),
     h('p', null, 'Games and useful finds, shared by the team.'),
-    form,
+    h('div', { class: 'stack' }, err, btn),
     h('p', { class: 'fine' }, api.preview
-      ? 'Preview mode: no email is sent. Any address works.'
-      : 'Invite-only. No password needed: we email you a one-time sign-in link.')));
-}
-
-function viewSent() {
-  const err = h('p', { class: 'err', role: 'alert' });
-  const code = h('input', { class: 'input', inputMode: 'numeric', autocomplete: 'one-time-code', placeholder: 'Code from the email', maxLength: 10 });
-  const form = h('form', {
-    novalidate: true,
-    onsubmit: async (e) => {
-      e.preventDefault();
-      const v = code.value.replace(/\D/g, '');
-      if (v.length < 6) { err.textContent = 'Enter the code from the email.'; return; }
-      try { await api.verifyCode(S.email, v); S.mode = 'loading'; await refresh(); }
-      catch (ex) { err.textContent = ex.message; }
-    },
-  }, h('label', { class: 'field' }, h('span', null, 'Or enter the code instead'), code), err,
-    h('button', { class: 'btn primary', type: 'submit' }, 'Sign in'),
-    h('button', { class: 'btn ghost', type: 'button', onclick: () => { S.mode = 'signin'; render(); } }, 'Use a different email'));
-
-  return h('main', { class: 'center' }, h('div', { class: 'panel' },
-    brandMark(),
-    h('h1', null, 'Check your inbox'),
-    h('p', null, 'We sent a sign-in link to ', h('b', null, S.email), '. Open it on this device.'),
-    form,
-    api.preview && h('p', { class: 'fine' }, 'Preview mode: type any 6 digits.')));
+      ? 'Preview mode: no real sign-in happens.'
+      : 'Invite-only. Sign in with the Google account you were invited with.')));
 }
 
 function viewRemoved() {
@@ -340,7 +376,7 @@ function viewRemoved() {
     brandMark(),
     h('h1', null, 'No access'),
     h('p', null, "This account doesn't have access to Lunchbreak Links. If that's a mistake, ask the admin to invite you again."),
-    h('button', { class: 'btn', onclick: async () => { await api.signOut(); S.mode = 'signin'; refresh(); } }, 'Sign out')));
+    h('button', { class: 'btn', onclick: async () => { await api.signOut(); refresh(); } }, 'Sign out')));
 }
 
 function viewError() {
@@ -365,6 +401,7 @@ function viewApp() {
     S.me.is_admin && h('nav', { class: 'tabs' },
       h('button', { class: 'tab' + (S.view === 'links' ? ' on' : ''), onclick: () => go('links') }, 'Links'),
       h('button', { class: 'tab' + (S.view === 'admin' ? ' on' : ''), onclick: () => go('admin') }, 'Admin')),
+    h('button', { class: 'icon-btn chat-btn' + (chat.unread ? ' has-new' : ''), onclick: () => toggleChat(), 'aria-label': 'Chat', title: 'Chat' }, icon('chat')),
     h('button', { class: 'btn primary', onclick: () => linkDialog(), 'aria-label': 'Add link' }, icon('plus'), h('span', { class: 'label' }, 'Add link')),
     h('button', { class: 'avatar-btn', onclick: profileDialog, 'aria-label': 'Your profile' }, avatar(S.me)));
 
@@ -411,7 +448,7 @@ function viewLinks() {
   const n = S.links.length;
   return h('main', null,
     h('section', { class: 'hero' },
-      h('h1', null, 'Take a break, ' + S.me.display_name + '.'),
+      h('h1', null, 'Take a break, ' + S.me.display_name.trim().split(/\s+/)[0] + '.'),
       h('p', null, n === 1 ? '1 link shared by the team.' : n + ' links shared by the team.'),
       h('label', { class: 'search' }, icon('search'),
         h('input', { type: 'search', placeholder: 'Search links', 'aria-label': 'Search links', value: S.q,
@@ -538,7 +575,7 @@ function profileDialog() {
       h('label', { class: 'field' }, h('span', null, 'Display name'), name),
       pick, err,
       h('div', { class: 'dlg-actions' },
-        h('button', { class: 'btn ghost left', type: 'button', onclick: async () => { close(); await api.signOut(); S.mode = 'signin'; S.view = 'links'; refresh(); } }, 'Sign out'),
+        h('button', { class: 'btn ghost left', type: 'button', onclick: async () => { close(); await api.signOut(); S.view = 'links'; refresh(); } }, 'Sign out'),
         h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), save));
     form.style.padding = '0';
     return form;
@@ -578,7 +615,7 @@ function viewAdmin() {
   const siteUrl = location.origin + location.pathname;
   const inviteText = (email) =>
     `Hi! You're invited to Lunchbreak Links, our little page for sharing games and useful links.\n\n` +
-    `Open ${siteUrl} and sign in with this email address (${email}). There's no password: you'll get a one-time sign-in link by email.`;
+    `Open ${siteUrl} and click "Continue with Google", using this account: ${email}.`;
 
   /* Members */
   const members = h('section', { class: 'section' },
@@ -596,7 +633,7 @@ function viewAdmin() {
   const email = h('input', { class: 'input', type: 'email', placeholder: 'colleague@company.com', 'aria-label': 'Email to invite' });
   const invite = h('section', { class: 'section' },
     h('h2', null, 'Invitations'),
-    h('p', null, 'Only invited addresses can sign in. Adding one does not send an email by itself: use "Email invite" to send it from your own mail.'),
+    h('p', null, 'Only invited Google accounts can sign in. Adding one does not send an email by itself: use "Email invite" to send it from your own mail.'),
     h('form', { class: 'inline-form', novalidate: true,
       onsubmit: async (e) => {
         e.preventDefault();
@@ -636,9 +673,130 @@ function viewAdmin() {
     h('div', { class: 'sections' }, members, invite, cats));
 }
 
+/* ---------- chat ---------- *
+ * One shared room in a slide-out panel. The panel lives outside the main
+ * page area so it stays put while the rest of the page redraws.          */
+
+const chat = { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null };
+const SEEN_KEY = 'lunchbreak-chat-seen';
+const getSeen = () => { try { return Number(localStorage.getItem(SEEN_KEY)) || 0; } catch { return 0; } };
+const setSeen = (id) => { try { localStorage.setItem(SEEN_KEY, String(id)); } catch { /* private window: fine */ } };
+
+async function chatStart() {
+  if (chat.ready) return;
+  chat.ready = true;
+  chatBuild();
+  chat.stop = api.subscribeMessages(chatAdd, chatRemove);
+  await chatReload();
+}
+
+function chatStop() {
+  if (!chat.ready) return;
+  chat.stop?.();
+  chat.el?.remove();
+  document.body.classList.remove('chat-open');
+  Object.assign(chat, { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null });
+}
+
+async function chatReload() {
+  try {
+    const d = await api.loadMessages();
+    chat.msgs = d.msgs; chat.hasMore = d.hasMore;
+  } catch { return; }
+  chatDraw(true);
+}
+
+function chatAdd(m) {
+  if (!chat.ready || chat.msgs.some((x) => x.id === m.id)) return;
+  chat.msgs.push(m);
+  chat.msgs.sort((a, b) => a.id - b.id);
+  if (!byId(S.profiles, m.author) && !document.querySelector('dialog[open]')) refresh(); // someone new: fetch their name
+  chatDraw(m.author === S.me?.id);
+}
+
+function chatRemove(id) {
+  if (!chat.ready) return;
+  chat.msgs = chat.msgs.filter((x) => x.id !== id);
+  chatDraw(false);
+}
+
+function chatBuild() {
+  chat.list = h('div', { class: 'chat-list', role: 'log', 'aria-live': 'polite' });
+  chat.input = h('textarea', { class: 'input chat-input', rows: 1, maxLength: 1000, placeholder: 'Write a message', 'aria-label': 'Message' });
+  const send = async () => {
+    const body = chat.input.value.trim();
+    if (!body) return;
+    chat.input.value = '';
+    try { chatAdd(await api.sendMessage(body)); }
+    catch (e) { chat.input.value = body; toast(e.message, true); }
+  };
+  chat.input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === 'Escape') toggleChat(false);
+  });
+  chat.el = h('aside', { class: 'chat', 'aria-label': 'Chat', hidden: true },
+    h('div', { class: 'chat-head' },
+      h('h2', null, 'Chat'),
+      h('button', { class: 'icon-btn', 'aria-label': 'Close chat', onclick: () => toggleChat(false) }, icon('close'))),
+    chat.list,
+    h('form', { class: 'chat-form', onsubmit: (e) => { e.preventDefault(); send(); } },
+      chat.input,
+      h('button', { class: 'btn primary chat-send', type: 'submit', 'aria-label': 'Send message' }, icon('send'))));
+  document.body.append(chat.el);
+}
+
+function toggleChat(force) {
+  if (!chat.ready) return;
+  chat.open = force ?? !chat.open;
+  chat.el.hidden = !chat.open;
+  document.body.classList.toggle('chat-open', chat.open);
+  if (chat.open) { chatDraw(true); chat.input.focus(); }
+}
+
+function chatDraw(toBottom) {
+  if (!chat.list) return;
+  const el = chat.list;
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+
+  const row = (m) => {
+    const who = byId(S.profiles, m.author);
+    return h('div', { class: 'msg' },
+      avatar(who, 'md'),
+      h('div', { class: 'msg-main' },
+        h('div', { class: 'msg-meta' }, h('b', null, who?.display_name || 'Member'), h('time', { dateTime: m.created_at }, clock(m.created_at))),
+        h('p', { class: 'msg-body' }, linkify(m.body))),
+      (m.author === S.me?.id || S.me?.is_admin) && h('button', { class: 'icon-btn msg-del', 'aria-label': 'Delete message', title: 'Delete',
+        onclick: () => confirmDialog('Delete this message?', 'It will be removed for everyone.', 'Delete', async () => {
+          try { await api.deleteMessage(m.id); chatRemove(m.id); } catch (e) { toast(e.message, true); }
+        }) }, icon('trash')));
+  };
+
+  const more =
+    chat.hasMore && h('button', { class: 'btn small ghost chat-more', onclick: async () => {
+      try {
+        const before = el.scrollHeight;
+        const d = await api.loadMessages(chat.msgs[0].id);
+        chat.msgs = [...d.msgs, ...chat.msgs]; chat.hasMore = d.hasMore;
+        chatDraw(false);
+        el.scrollTop = el.scrollHeight - before;
+      } catch (e) { toast(e.message, true); }
+    } }, 'Load earlier messages');
+  const rows = chat.msgs.length ? chat.msgs.map(row) : [h('p', { class: 'chat-empty' }, 'No messages yet. Say hi.')];
+  el.replaceChildren(...(more ? [more] : []), ...rows);
+
+  if (toBottom || nearBottom) el.scrollTop = el.scrollHeight;
+
+  // Unread dot on the chat button
+  const last = chat.msgs[chat.msgs.length - 1];
+  if (chat.open) { if (last) setSeen(last.id); chat.unread = false; }
+  else chat.unread = !!last && last.id > getSeen() && last.author !== S.me?.id;
+  document.querySelector('.chat-btn')?.classList.toggle('has-new', chat.unread);
+}
+
 /* ---------- start ---------- */
 
 async function start() {
+  S.signInError = signInProblem();
   try {
     api = SUPABASE_URL && SUPABASE_KEY ? await supabaseApi() : previewApi();
   } catch {
@@ -647,7 +805,7 @@ async function start() {
   api.onAuth(() => { if (!document.querySelector('dialog[open]')) refresh(); });
   // Pick up other people's changes when you come back to the tab.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && S.mode === 'app' && !document.querySelector('dialog[open]') && document.activeElement?.tagName !== 'INPUT') refresh();
+    if (!document.hidden && S.mode === 'app' && !document.querySelector('dialog[open]') && document.activeElement?.tagName !== 'INPUT') { refresh(); if (chat.ready) chatReload(); }
   });
   await refresh();
 }

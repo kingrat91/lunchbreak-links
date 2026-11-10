@@ -2,9 +2,10 @@
 -- Run this ONCE in the Supabase dashboard: SQL Editor > New query > paste > Run.
 --
 -- What it sets up, in plain words:
---   * Only invited email addresses can create an account.
+--   * Only invited Google accounts (by email address) can get in.
 --   * Only active members can read anything.
 --   * Members can add links, and edit or delete their own.
+--   * Members can post chat messages, and delete their own.
 --   * Only admins can manage categories, invitations and members.
 --   * Nobody who is signed out can read or change anything.
 
@@ -45,6 +46,13 @@ create table public.links (
 );
 create index links_category_idx on public.links (category_id);
 
+create table public.messages (
+  id         bigint generated always as identity primary key,
+  body       text not null check (char_length(body) between 1 and 1000),
+  author     uuid not null default auth.uid() references public.profiles (id),
+  created_at timestamptz not null default now()
+);
+
 -- ------------------------------------------------------- helper functions
 
 create function public.is_member() returns boolean
@@ -69,7 +77,14 @@ begin
     raise exception 'This email address has not been invited.';
   end if;
   insert into public.profiles (id, display_name, is_admin)
-  values (new.id, left(split_part(new.email, '@', 1), 40), inv.is_admin);
+  values (
+    new.id,
+    -- Use the name from the Google account; fall back to the part of the email before the @.
+    left(coalesce(nullif(trim(new.raw_user_meta_data ->> 'full_name'), ''),
+                  nullif(trim(new.raw_user_meta_data ->> 'name'), ''),
+                  split_part(new.email, '@', 1)), 40),
+    inv.is_admin
+  );
   return new;
 end;
 $$;
@@ -134,7 +149,7 @@ $$;
 -- ------------------------------------------------------------ permissions
 -- Start from nothing, then allow only what the site needs.
 
-revoke all on public.invites, public.profiles, public.categories, public.links from anon, authenticated;
+revoke all on public.invites, public.profiles, public.categories, public.links, public.messages from anon, authenticated;
 revoke all on function public.is_member(), public.is_admin(), public.handle_new_user(),
   public.admin_members(), public.invite_member(text), public.remove_member(uuid)
   from public, anon, authenticated;
@@ -147,11 +162,13 @@ grant update (display_name, avatar_emoji, avatar_color) on public.profiles to au
 grant insert (name, url, category_id), update (name, url, category_id), delete on public.links to authenticated;
 grant insert (name, color), update (name, color), delete on public.categories to authenticated;
 grant select, delete on public.invites to authenticated;
+grant select, insert (body), delete on public.messages to authenticated;
 
 alter table public.invites    enable row level security;
 alter table public.profiles   enable row level security;
 alter table public.categories enable row level security;
 alter table public.links      enable row level security;
+alter table public.messages   enable row level security;
 
 -- profiles: members see each other; you can always see your own row.
 create policy profiles_read on public.profiles for select to authenticated
@@ -175,6 +192,16 @@ create policy links_update on public.links for update to authenticated
   with check (public.is_member());
 create policy links_delete on public.links for delete to authenticated
   using (public.is_member() and (added_by = (select auth.uid()) or public.is_admin()));
+
+-- chat messages: members read and post; the author or an admin can delete. No editing.
+create policy messages_read   on public.messages for select to authenticated using (public.is_member());
+create policy messages_insert on public.messages for insert to authenticated
+  with check (public.is_member() and author = (select auth.uid()));
+create policy messages_delete on public.messages for delete to authenticated
+  using (public.is_member() and (author = (select auth.uid()) or public.is_admin()));
+
+-- Send new chat messages to open pages straight away (only to people allowed to read them).
+alter publication supabase_realtime add table public.messages;
 
 -- invites: admins only.
 create policy invites_read   on public.invites for select to authenticated using (public.is_admin());
