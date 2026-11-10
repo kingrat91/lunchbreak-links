@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=5';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=8';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
@@ -6,8 +6,31 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=5';
  *  All text typed by members is inserted as plain text, never as HTML.
  * ------------------------------------------------------------------ */
 
-const COLORS = ['#8b7cf6', '#f5a524', '#34c77b', '#f0527a', '#4c9df8', '#22c1d6', '#e879f9', '#a3a3ad'];
-const EMOJIS = ['', '🦊', '🐼', '🐙', '🦉', '🐝', '🌵', '🍕', '🎮', '🎧', '🚀', '☕', '🍜', '🎲'];
+const COLORS = ['#8b7cf6', '#f5a524', '#34c77b', '#f0527a', '#4c9df8', '#22c1d6', '#e879f9', '#a3a3ad',
+  '#ff7a59', '#f7d038', '#a8e04a', '#5eead4', '#6b7cff', '#ffb3c7'];
+const EMOJIS = ['', '🦊', '🐼', '🐱', '🐶', '🐻', '🐨', '🐯', '🦁', '🐵', '🐸', '🐧', '🦉', '🦄', '🐰', '🦝', '🦔', '🦦', '🦥', '🐢', '🦖', '🐳', '🐝',
+  '🌵', '🍕', '🎮', '🎧', '🚀', '☕', '🍜', '🎲'];
+
+// Welcome lines. NAME is replaced with the person's first name. One is picked when the
+// page loads or someone signs in, and again when the time of day moves on.
+const GREETINGS = {
+  any: ['Take a break, NAME.', "Heeere's NAME!", 'All work and no play, NAME?', "Don't be a dull Jack, NAME.",
+    "You've earned this, NAME.", 'The tickets can wait, NAME.', 'Five more minutes, NAME.', 'Play first, NAME.',
+    'Step away from the keyboard, NAME.'],
+  afternoon: ['Time to recharge, NAME.'],                    // 14:00 to 17:00
+  evening: ['Still here, NAME?', 'Go home, NAME. Or play.'],  // after 17:00
+};
+let greeting = { slot: '', line: '' };
+function greet(name) {
+  const hr = new Date().getHours();
+  const slot = hr < 11 ? 'morning' : hr < 14 ? 'lunch' : hr < 17 ? 'afternoon' : 'evening';
+  if (greeting.slot !== slot) {
+    const pick = (list) => list[Math.floor(Math.random() * list.length)];
+    const timely = GREETINGS[slot]; // mornings and lunchtime have no lines of their own
+    greeting = { slot, line: pick(timely && Math.random() < 0.5 ? timely : GREETINGS.any) };
+  }
+  return greeting.line.replace('NAME', name);
+}
 
 const ICONS = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 5.4"/><path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07l1.33-1.3"/></svg>',
@@ -316,6 +339,7 @@ async function refresh() {
     const user = await api.user();
     if (!user) {
       S.mode = 'signin'; S.me = null;
+      greeting = { slot: '', line: '' }; // a fresh welcome line after the next sign-in
       chatStop();
       return render();
     }
@@ -448,7 +472,7 @@ function viewLinks() {
   const n = S.links.length;
   return h('main', null,
     h('section', { class: 'hero' },
-      h('h1', null, 'Take a break, ' + S.me.display_name.trim().split(/\s+/)[0] + '.'),
+      h('h1', null, greet(S.me.display_name.trim().split(/\s+/)[0])),
       h('p', null, n === 1 ? '1 link shared by the team.' : n + ' links shared by the team.'),
       h('label', { class: 'search' }, icon('search'),
         h('input', { type: 'search', placeholder: 'Search links', 'aria-label': 'Search links', value: S.q,

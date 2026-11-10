@@ -285,6 +285,6 @@ dialog.dlg::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(3px)
   color: rgba(245, 245, 247, .09);
   transition: opacity 3s ease;
 }
-.tw.typing::after { content: '\2588'; margin-left: 2px; color: rgba(245, 245, 247, .16); }
+.tw.typing::after { content: ''; display: inline-block; width: 1.5px; height: 1.1em; margin-left: 2px; vertical-align: text-bottom; background: rgba(245, 245, 247, .28); }
 .tw.gone { opacity: 0; }
 @media (max-width: 600px) { .tw { font-size: 12px !important; } }
