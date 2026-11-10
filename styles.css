@@ -274,3 +274,17 @@ dialog.dlg::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(3px)
   .panel { padding: 24px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Background typewriter ---------- */
+/* Sits behind everything; cards and panels cover it, so it only shows in the gaps. */
+#bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; user-select: none; }
+#app { position: relative; z-index: 1; }
+.tw {
+  position: absolute; white-space: pre; line-height: 1.7;
+  font-family: 'Courier New', Courier, monospace; letter-spacing: .02em;
+  color: rgba(245, 245, 247, .09);
+  transition: opacity 3s ease;
+}
+.tw.typing::after { content: '\2588'; margin-left: 2px; color: rgba(245, 245, 247, .16); }
+.tw.gone { opacity: 0; }
+@media (max-width: 600px) { .tw { font-size: 12px !important; } }

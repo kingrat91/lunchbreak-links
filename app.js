@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=4';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=5';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
@@ -504,7 +504,7 @@ function linkDialog(link) {
     const url = h('input', { class: 'input', inputMode: 'url', maxLength: 2000, placeholder: 'https://…', value: link?.url || '' });
     const cat = h('select', { class: 'input' },
       !link && h('option', { value: '' }, 'Choose a category'),
-      S.categories.map((c) => h('option', { value: c.id, selected: link?.category_id === c.id }, c.name)));
+      S.categories.map((c) => h('option', { value: c.id, selected: link ? link.category_id === c.id : S.filter === c.id }, c.name)));
     const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
 
     const form = h('form', {
@@ -793,6 +793,61 @@ function chatDraw(toBottom) {
   document.querySelector('.chat-btn')?.classList.toggle('has-new', chat.unread);
 }
 
+/* ---------- background typewriter ---------- */
+// Quietly types a line at random spots behind the page, then lets it fade.
+// Purely decorative: hidden from screen readers, never clickable, and it stays
+// still for people who have asked their device for less motion.
+
+const TYPED_LINE = 'All work and no play makes Jack a dull boy';
+
+function backgroundTyping() {
+  const layer = document.getElementById('bg');
+  if (!layer) return;
+  const rand = (a, b) => a + Math.random() * (b - a);
+  // Pick a spot that is not on top of a line that is already showing.
+  const place = (el) => {
+    const taken = [...layer.children].map((c) => parseFloat(c.style.top));
+    let top = rand(4, 86);
+    for (let n = 0; n < 12 && taken.some((t) => Math.abs(t - top) < 16); n++) top = rand(4, 86);
+    el.style.left = rand(2, 68) + '%';
+    el.style.top = top + '%';
+    el.style.fontSize = rand(13, 16) + 'px';
+  };
+
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (let i = 0; i < 4; i++) {
+      const el = document.createElement('div');
+      el.className = 'tw';
+      el.textContent = TYPED_LINE;
+      place(el);
+      layer.append(el);
+    }
+    return;
+  }
+
+  const MAX = 3;
+  let live = 0;
+  function spawn() {
+    if (document.hidden || live >= MAX) return;
+    live++;
+    const el = document.createElement('div');
+    el.className = 'tw typing';
+    place(el);
+    layer.append(el);
+    const text = Array(1 + Math.floor(rand(0, 3))).fill(TYPED_LINE).join('\n');
+    let i = 0;
+    (function key() {
+      el.textContent = text.slice(0, ++i);
+      if (i < text.length) return setTimeout(key, text[i - 1] === '\n' ? 500 : rand(45, 130));
+      el.classList.remove('typing');
+      setTimeout(() => el.classList.add('gone'), 5000);
+      setTimeout(() => { el.remove(); live--; }, 8000);
+    })();
+  }
+  spawn();
+  setInterval(spawn, 3500);
+}
+
 /* ---------- start ---------- */
 
 async function start() {
@@ -810,4 +865,5 @@ async function start() {
   await refresh();
 }
 
+backgroundTyping();
 start();
