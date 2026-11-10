@@ -11,6 +11,8 @@ A small, invite-only page where a team shares links to games and useful resource
 | `app.js` | How it behaves: sign-in, links, chat, profile, admin |
 | `config.js` | Connection settings for the shared database |
 | `supabase/schema.sql` | Database tables and access rules, run once in Supabase |
+| `supabase/reactions.sql` | Adds chat reactions to the database, run once in Supabase |
+| `overview.md` | Project overview and change log |
 
 ## Preview mode
 

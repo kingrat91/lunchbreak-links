@@ -252,9 +252,35 @@ dialog.dlg::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(3px)
 .msg-meta time { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .msg-body { color: #dcdce2; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
 .msg-body a { color: #b3a8ff; text-underline-offset: 2px; }
-.msg-del { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; opacity: 0; }
-.msg:hover .msg-del, .msg-del:focus-visible { opacity: 1; }
-@media (hover: none) { .msg-del { opacity: 1; position: static; flex: none; } }
+.msg-acts { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0; }
+.msg-acts .icon-btn { width: 30px; height: 30px; }
+.msg:hover .msg-acts, .msg-acts:focus-within { opacity: 1; }
+.msg.picking .msg-acts { visibility: hidden; }
+@media (hover: none) { .msg-acts { opacity: 1; position: static; flex: none; } }
+
+/* Reactions: the pills under a message, and the row of emojis that opens from the smiley button. */
+.reacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.react {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--muted);
+  font-size: 14px; line-height: 1;
+}
+.react .n { font-size: 12px; font-weight: 600; }
+.react:hover { border-color: var(--faint); color: var(--text); }
+.react.mine { border-color: var(--accent); background: #211d3d; color: var(--text); }
+.react[data-tip]:hover::after, .react[data-tip]:focus-visible::after {
+  content: attr(data-tip); position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 3;
+  width: max-content; max-width: 220px; padding: 5px 9px; border-radius: 9px;
+  background: #000; border: 1px solid var(--border-strong); color: var(--text);
+  font-size: 12px; font-weight: 500; line-height: 1.35; text-align: left; white-space: normal; pointer-events: none;
+}
+.react-pick {
+  position: absolute; top: 3px; right: 6px; z-index: 2; display: flex; gap: 2px; padding: 4px;
+  border-radius: 999px; background: var(--bg); border: 1px solid var(--border-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+}
+.react-pick button { width: 34px; height: 34px; padding: 0; border: 0; border-radius: 999px; background: none; font-size: 18px; line-height: 1; }
+.react-pick button:hover, .react-pick button:focus-visible { background: var(--surface-2); }
+.react-pick button.on { background: #211d3d; box-shadow: inset 0 0 0 1px var(--accent); }
 .chat-form { display: flex; gap: 8px; align-items: flex-end; padding: 12px; border-top: 1px solid var(--border); }
 .chat-input { height: auto; min-height: 46px; max-height: 140px; padding: 11px 14px; resize: none; line-height: 1.4; font: inherit; color: inherit; field-sizing: content; }
 .chat-send { width: 46px; height: 46px; padding: 0; flex: none; }

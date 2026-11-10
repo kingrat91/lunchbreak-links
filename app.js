@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=13';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=14';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
@@ -12,6 +12,9 @@ const EMOJIS = ['', '🦊', '🐼', '🐱', '🐶', '🐻', '🐨', '🐯', '�
   '🌵', '🍀', '🌈', '🌙', '⚡', '🔥', '🪐',
   '👻', '👽', '🧙‍♀️', '🧛', '🧟', '🎃', '💀', '🦇', '👹',
   '🍕', '🍔', '🌮', '🍟', '🍩', '🍪', '🍣'];
+
+// The quick reactions offered under the smiley button on a chat message.
+const REACTIONS = ['👍', '❤️', '😂', '😮', '💀', '🐀'];
 
 // Lines typed out under the welcome heading, one after another. NAME is replaced with
 // the person's first name. The afternoon and evening lines only join in at those hours.
@@ -76,6 +79,7 @@ const ICONS = {
   chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.2a4.2 4.2 0 0 0 7 0M9.2 9.8h.01M14.8 9.8h.01"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
 };
 
@@ -221,6 +225,11 @@ function previewApi() {
       { id: 2, body: "I'm in 🙌", author: 'u1', created_at: at(0.07) },
       { id: 3, body: 'Me too. Also added a good one for the UX folks: https://lawsofux.com/', author: 'u3', created_at: at(0.05) },
     ],
+    reactions: [
+      { message_id: 1, user_id: 'u1', emoji: '👍' }, { message_id: 1, user_id: 'u3', emoji: '👍' },
+      { message_id: 1, user_id: 'u3', emoji: '🐀' },
+      { message_id: 3, user_id: 'u2', emoji: '❤️' },
+    ],
   };
   const copy = (x) => JSON.parse(JSON.stringify(x));
   const pub = ({ email, ...p }) => p;
@@ -244,8 +253,17 @@ function previewApi() {
       db.messages.push(m);
       return copy(m);
     },
-    async deleteMessage(mid) { db.messages = db.messages.filter((m) => m.id !== mid); },
+    async deleteMessage(mid) {
+      db.messages = db.messages.filter((m) => m.id !== mid);
+      db.reactions = db.reactions.filter((r) => r.message_id !== mid);
+    },
     subscribeMessages() { return () => {}; },
+    async loadReactions(ids) { return copy(db.reactions.filter((r) => ids.includes(r.message_id))); },
+    async setReaction(mid, emoji, on) {
+      db.reactions = db.reactions.filter((r) => !(r.message_id === mid && r.user_id === 'u1' && r.emoji === emoji));
+      if (on) db.reactions.push({ message_id: mid, user_id: 'u1', emoji });
+    },
+    subscribeReactions() { return () => {}; },
     async addLink(l) { db.links.unshift({ id: id(), ...l, added_by: 'u1', created_at: new Date().toISOString() }); },
     async updateLink(lid, l) { Object.assign(db.links.find((x) => x.id === lid), l); },
     async deleteLink(lid) { db.links = db.links.filter((x) => x.id !== lid); },
@@ -328,6 +346,28 @@ async function supabaseApi() {
       const ch = sb.channel('chat')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => onInsert(p.new))
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (p) => onDelete(p.old.id))
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    },
+    /** Everyone's reactions on the given messages. */
+    async loadReactions(ids) {
+      if (!ids.length) return [];
+      return ok(await sb.from('reactions').select('message_id, user_id, emoji').in('message_id', ids));
+    },
+    /** Adds (on = true) or takes back (on = false) your own reaction. */
+    async setReaction(mid, emoji, on) {
+      const { error } = on
+        ? await sb.from('reactions').insert({ message_id: mid, emoji })
+        : await sb.from('reactions').delete().eq('message_id', mid).eq('emoji', emoji).eq('user_id', await uid());
+      if (!error || error.code === '23505') return;          // 23505: it was already there, which is fine
+      if (error.code === '23503') throw new Error('That message was deleted.');
+      throw new Error(friendly(error));
+    },
+    /** Live updates for reactions. Kept on its own channel so chat itself never depends on it. */
+    subscribeReactions(onInsert, onDelete) {
+      const ch = sb.channel('chat-reactions')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, (p) => onInsert(p.new))
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, (p) => onDelete(p.old))
         .subscribe();
       return () => sb.removeChannel(ch);
     },
@@ -735,7 +775,9 @@ function viewAdmin() {
  * One shared room in a slide-out panel. The panel lives outside the main
  * page area so it stays put while the rest of the page redraws.          */
 
-const chat = { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null };
+const chat = { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null,
+  reacts: [],      // every reaction on the loaded messages: { message_id, user_id, emoji }
+  picking: null }; // id of the message whose reaction row is open
 const SEEN_KEY = 'lunchbreak-chat-seen';
 const getSeen = () => { try { return Number(localStorage.getItem(SEEN_KEY)) || 0; } catch { return 0; } };
 const setSeen = (id) => { try { localStorage.setItem(SEEN_KEY, String(id)); } catch { /* private window: fine */ } };
@@ -744,7 +786,9 @@ async function chatStart() {
   if (chat.ready) return;
   chat.ready = true;
   chatBuild();
-  chat.stop = api.subscribeMessages(chatAdd, chatRemove);
+  const stopMsgs = api.subscribeMessages(chatAdd, chatRemove);
+  const stopReacts = api.subscribeReactions(reactAdd, reactRemove);
+  chat.stop = () => { stopMsgs(); stopReacts(); };
   await chatReload();
 }
 
@@ -753,7 +797,7 @@ function chatStop() {
   chat.stop?.();
   chat.el?.remove();
   document.body.classList.remove('chat-open');
-  Object.assign(chat, { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null });
+  Object.assign(chat, { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null, reacts: [], picking: null });
 }
 
 async function chatReload() {
@@ -761,7 +805,36 @@ async function chatReload() {
     const d = await api.loadMessages();
     chat.msgs = d.msgs; chat.hasMore = d.hasMore;
   } catch { return; }
+  chat.reacts = await reactsFor(chat.msgs);
   chatDraw(true);
+}
+
+/* Reactions. If they can't be loaded, chat still works; they just don't show. */
+async function reactsFor(msgs) {
+  try { return await api.loadReactions(msgs.map((m) => m.id)); } catch { return []; }
+}
+const sameReact = (a, b) => a.message_id === b.message_id && a.user_id === b.user_id && a.emoji === b.emoji;
+
+function reactAdd(r) {
+  if (!chat.ready || chat.reacts.some((x) => sameReact(x, r))) return;
+  chat.reacts.push({ message_id: r.message_id, user_id: r.user_id, emoji: r.emoji });
+  chatDraw(false);
+}
+
+function reactRemove(r) {
+  if (!chat.ready) return;
+  chat.reacts = chat.reacts.filter((x) => !sameReact(x, r));
+  chatDraw(false);
+}
+
+/** Click an emoji: adds your reaction, or takes it back if you already gave it. */
+async function reactToggle(mid, emoji) {
+  const mine = { message_id: mid, user_id: S.me.id, emoji };
+  const on = !chat.reacts.some((x) => sameReact(x, mine));
+  chat.picking = null;
+  if (on) reactAdd(mine); else reactRemove(mine);         // show it straight away
+  try { await api.setReaction(mid, emoji, on); }
+  catch (e) { if (on) reactRemove(mine); else reactAdd(mine); toast(e.message, true); }
 }
 
 function chatAdd(m) {
@@ -775,6 +848,7 @@ function chatAdd(m) {
 function chatRemove(id) {
   if (!chat.ready) return;
   chat.msgs = chat.msgs.filter((x) => x.id !== id);
+  chat.reacts = chat.reacts.filter((x) => x.message_id !== id);
   chatDraw(false);
 }
 
@@ -792,6 +866,9 @@ function chatBuild() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     if (e.key === 'Escape') toggleChat(false);
   });
+  const closePicker = () => { if (chat.picking != null) { chat.picking = null; chatDraw(false); } };
+  chat.list.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker(); });
+  document.addEventListener('click', (e) => { if (chat.ready && !e.target.closest?.('.react-pick, .msg-react')) closePicker(); });
   chat.el = h('aside', { class: 'chat', 'aria-label': 'Chat', hidden: true },
     h('div', { class: 'chat-head' },
       h('h2', null, 'Chat'),
@@ -818,15 +895,38 @@ function chatDraw(toBottom) {
 
   const row = (m) => {
     const who = byId(S.profiles, m.author);
-    return h('div', { class: 'msg' },
+    const mine = chat.reacts.filter((r) => r.message_id === m.id);
+
+    // One pill per emoji that has been used on this message, in the fixed REACTIONS order.
+    const pills = REACTIONS.map((e) => {
+      const by = mine.filter((r) => r.emoji === e);
+      if (!by.length) return null;
+      const me = by.some((r) => r.user_id === S.me?.id);
+      const names = [...(me ? ['You'] : []),
+        ...by.filter((r) => r.user_id !== S.me?.id).map((r) => byId(S.profiles, r.user_id)?.display_name || 'Member')].join(', ');
+      return h('button', { class: 'react' + (me ? ' mine' : ''), type: 'button', 'data-tip': names,
+        'aria-pressed': String(me), 'aria-label': e + ' ' + by.length + ', from ' + names,
+        onclick: () => reactToggle(m.id, e) }, h('span', null, e), h('span', { class: 'n' }, by.length));
+    }).filter(Boolean);
+
+    const picking = chat.picking === m.id;
+    return h('div', { class: 'msg' + (picking ? ' picking' : '') },
       avatar(who, 'md'),
       h('div', { class: 'msg-main' },
         h('div', { class: 'msg-meta' }, h('b', null, who?.display_name || 'Member'), h('time', { dateTime: m.created_at }, clock(m.created_at))),
-        h('p', { class: 'msg-body' }, linkify(m.body))),
-      (m.author === S.me?.id || S.me?.is_admin) && h('button', { class: 'icon-btn msg-del', 'aria-label': 'Delete message', title: 'Delete',
-        onclick: () => confirmDialog('Delete this message?', 'It will be removed for everyone.', 'Delete', async () => {
-          try { await api.deleteMessage(m.id); chatRemove(m.id); } catch (e) { toast(e.message, true); }
-        }) }, icon('trash')));
+        h('p', { class: 'msg-body' }, linkify(m.body)),
+        pills.length > 0 && h('div', { class: 'reacts' }, pills)),
+      h('div', { class: 'msg-acts' },
+        h('button', { class: 'icon-btn msg-react', 'aria-label': 'Add a reaction', title: 'React', 'aria-expanded': String(picking),
+          onclick: () => { chat.picking = picking ? null : m.id; chatDraw(false); chat.list.querySelector('.react-pick button')?.focus(); } }, icon('smile')),
+        (m.author === S.me?.id || S.me?.is_admin) && h('button', { class: 'icon-btn msg-del', 'aria-label': 'Delete message', title: 'Delete',
+          onclick: () => confirmDialog('Delete this message?', 'It will be removed for everyone.', 'Delete', async () => {
+            try { await api.deleteMessage(m.id); chatRemove(m.id); } catch (e) { toast(e.message, true); }
+          }) }, icon('trash'))),
+      picking && h('div', { class: 'react-pick', role: 'group', 'aria-label': 'Pick a reaction' },
+        REACTIONS.map((e) => h('button', { type: 'button', 'aria-label': 'React with ' + e,
+          class: mine.some((r) => r.emoji === e && r.user_id === S.me?.id) ? 'on' : '',
+          onclick: () => reactToggle(m.id, e) }, e))));
   };
 
   const more =
@@ -835,6 +935,7 @@ function chatDraw(toBottom) {
         const before = el.scrollHeight;
         const d = await api.loadMessages(chat.msgs[0].id);
         chat.msgs = [...d.msgs, ...chat.msgs]; chat.hasMore = d.hasMore;
+        chat.reacts = [...await reactsFor(d.msgs), ...chat.reacts];
         chatDraw(false);
         el.scrollTop = el.scrollHeight - before;
       } catch (e) { toast(e.message, true); }
