@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=14';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=15';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
@@ -782,6 +782,35 @@ const SEEN_KEY = 'lunchbreak-chat-seen';
 const getSeen = () => { try { return Number(localStorage.getItem(SEEN_KEY)) || 0; } catch { return 0; } };
 const setSeen = (id) => { try { localStorage.setItem(SEEN_KEY, String(id)); } catch { /* private window: fine */ } };
 
+/* Notification sound: a soft two-note chime made by the browser itself, so there is no audio file.
+ * Browsers only allow sound after the first click or key press on the page, so that is when it gets switched on. */
+let audio = null, lastChime = 0;
+
+function audioUnlock() {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+  } catch { /* no sound available: carry on silently */ }
+}
+
+function chimeNotes(ctx, t0) {
+  for (const [freq, at] of [[659.25, 0], [523.25, 0.17]]) {   // E5 then C5: "ding-dong"
+    const osc = ctx.createOscillator(), gain = ctx.createGain(), t = t0 + at;
+    osc.type = 'sine'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.14, t + 0.015);  // quick, quiet attack
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.55); // soft fade
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.6);
+  }
+}
+
+function chime() {
+  if (!audio || audio.state !== 'running' || Date.now() - lastChime < 1500) return; // at most one every 1.5 seconds
+  lastChime = Date.now();
+  chimeNotes(audio, audio.currentTime + 0.02);
+}
+
 async function chatStart() {
   if (chat.ready) return;
   chat.ready = true;
@@ -841,6 +870,7 @@ function chatAdd(m) {
   if (!chat.ready || chat.msgs.some((x) => x.id === m.id)) return;
   chat.msgs.push(m);
   chat.msgs.sort((a, b) => a.id - b.id);
+  if (m.author !== S.me?.id && (!chat.open || document.hidden)) chime(); // someone else wrote, and you're not looking at the chat
   if (!byId(S.profiles, m.author) && !document.querySelector('dialog[open]')) refresh(); // someone new: fetch their name
   chatDraw(m.author === S.me?.id);
 }
@@ -961,6 +991,7 @@ async function start() {
   } catch {
     S.mode = 'error'; S.error = "Can't reach the server. Check your connection and try again."; return render();
   }
+  for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, audioUnlock, { passive: true });
   api.onAuth(() => { if (!document.querySelector('dialog[open]')) refresh(); });
   // Pick up other people's changes when you come back to the tab.
   document.addEventListener('visibilitychange', () => {

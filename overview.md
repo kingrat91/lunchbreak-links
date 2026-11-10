@@ -6,7 +6,7 @@ A private, invite-only site where a small team shares links to games and useful 
 - **Hosting:** GitHub Pages (this repository, branch `main`)
 - **Accounts, data and chat:** Supabase, free plan
 - **Sign-in:** Google only, limited to people on the invite list
-- **Current file version:** `?v=14` (the next change uses `?v=15`)
+- **Current file version:** `?v=15` (the next change uses `?v=16`)
 
 ## How this log works
 
@@ -23,6 +23,7 @@ Changes to this file itself don't need a version bump, because the site never lo
 
 | # | Date | Committed | Pushed | Version | What changed |
 |---|---|---|---|---|---|
+| 10 | 10 Nov 2026 | not committed yet | not pushed yet | v=15 | **Chat notification sound.** A soft two-note chime plays when someone else posts a chat message while the chat panel is closed or the site is in a background tab. Made by the browser, no audio file. Always on, messages only (reactions are silent). Browsers only allow it after the first click on the page. |
 | 9 | 10 Nov 2026 | not committed yet | not pushed yet | v=14 | **Chat reactions.** A smiley button on each chat message opens a row of six quick reactions (👍 ❤️ 😂 😮 💀 🐀). Several per person per message; click your own again to take it back. Hovering a reaction shows who gave it. New file `supabase/reactions.sql` adds the reactions table and must be run once in Supabase. |
 | 8 | 10 Nov 2026 | not committed yet | not pushed yet | v=13 | Added this overview and change log (`overview.md`). No change to the site. |
 | 7 | 10 Nov 2026 | 13:47 | 13:47 | v=13 | **More welcome lines and new emoji set.** More sentences for the typewriter line under the welcome heading. Profile avatars reworked: animals (including a rat), nature, spooky and food; no "item" emojis. |
