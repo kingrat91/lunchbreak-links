@@ -1,8 +1,8 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=16';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=17';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
- *  One small page: sign-in, link list, add/edit form, profile, admin.
+ *  One small page: sign-in, link list, dictionary, shared board, profile, admin.
  *  All text typed by members is inserted as plain text, never as HTML.
  * ------------------------------------------------------------------ */
 
@@ -246,6 +246,16 @@ function previewApi() {
       { message_id: 1, user_id: 'u3', emoji: '🐀' },
       { message_id: 3, user_id: 'u2', emoji: '❤️' },
     ],
+    words: [
+      { id: 1, word: 'Snaccident', meaning: 'Eating the whole bag when you only meant to have one.', said_by: 'Marko', added_by: 'u1', created_at: at(2) },
+      { id: 2, word: 'Meetingitis', meaning: 'The tired feeling after the third call in a row.', said_by: '', added_by: 'u3', created_at: at(4) },
+      { id: 3, word: 'Blorf', meaning: '', said_by: 'Jelena', added_by: 'u2', created_at: at(6) },
+      { id: 4, word: 'Fixish', meaning: 'Fixed, more or less. Do not look too closely.', said_by: '', added_by: 'u2', created_at: at(8) },
+    ],
+    strokes: [
+      { id: 1, user_id: 'u2', color: '#f7d038', size: 10, points: [300, 520, 380, 430, 470, 520, 560, 430, 650, 520, 740, 430, 830, 520] },
+      { id: 2, user_id: 'u3', color: '#4c9df8', size: 10, points: [960, 380, 1010, 330, 1080, 330, 1130, 380, 1130, 450, 1080, 500, 1010, 500, 960, 450, 960, 380] },
+    ],
   };
   const copy = (x) => JSON.parse(JSON.stringify(x));
   const pub = ({ email, ...p }) => p;
@@ -280,6 +290,14 @@ function previewApi() {
       if (on) db.reactions.push({ message_id: mid, user_id: 'u1', emoji });
     },
     subscribeReactions() { return () => {}; },
+    async loadWords() { return copy(db.words); },
+    async addWord(w) { db.words.push({ id: ++n, ...w, added_by: 'u1', created_at: new Date().toISOString() }); },
+    async updateWord(wid, w) { Object.assign(db.words.find((x) => x.id === wid), w); },
+    async deleteWord(wid) { db.words = db.words.filter((x) => x.id !== wid); },
+    async loadStrokes() { return copy(db.strokes); },
+    async addStroke(st) { const row = { id: ++n, user_id: 'u1', ...st }; db.strokes.push(row); return copy(row); },
+    async clearBoard() { db.strokes = []; },
+    subscribeBoard() { return () => {}; },
     async addLink(l) { db.links.unshift({ id: id(), ...l, added_by: 'u1', created_at: new Date().toISOString() }); },
     async updateLink(lid, l) { Object.assign(db.links.find((x) => x.id === lid), l); },
     async deleteLink(lid) { db.links = db.links.filter((x) => x.id !== lid); },
@@ -387,6 +405,34 @@ async function supabaseApi() {
         .subscribe();
       return () => sb.removeChannel(ch);
     },
+    /* Dictionary */
+    async loadWords() {
+      return ok(await sb.from('words').select('id, word, meaning, said_by, added_by, created_at').order('word'));
+    },
+    async addWord(w) { ok(await sb.from('words').insert(w)); },
+    async updateWord(id, w) { ok(await sb.from('words').update(w).eq('id', id)); },
+    async deleteWord(id) { ok(await sb.from('words').delete().eq('id', id)); },
+    /* Board. The database hands out at most 1000 rows at a time, so the strokes are fetched in pages. */
+    async loadStrokes() {
+      const all = [];
+      for (let from = 0; ; from += 1000) {
+        const rows = ok(await sb.from('board_strokes').select('id, user_id, color, size, points').order('id').range(from, from + 999));
+        all.push(...rows);
+        if (rows.length < 1000) return all;
+      }
+    },
+    async addStroke(st) {
+      return ok(await sb.from('board_strokes').insert(st).select('id, user_id, color, size, points').single());
+    },
+    async clearBoard() { ok(await sb.from('board_strokes').delete().gte('id', 0)); },
+    /** Live updates for the board: other people's strokes, and the board being cleared. */
+    subscribeBoard(onInsert, onDelete) {
+      const ch = sb.channel('board')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_strokes' }, (p) => onInsert(p.new))
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'board_strokes' }, (p) => onDelete(p.old.id))
+        .subscribe();
+      return () => sb.removeChannel(ch);
+    },
     async addLink(l) { ok(await sb.from('links').insert(l)); },
     async updateLink(id, l) { ok(await sb.from('links').update(l).eq('id', id)); },
     async deleteLink(id) { ok(await sb.from('links').delete().eq('id', id)); },
@@ -416,8 +462,9 @@ const $app = document.getElementById('app');
 let api;
 const S = {
   mode: 'loading',           // loading | signin | removed | error | app
-  view: 'links',             // links | admin
+  view: 'links',             // links | dictionary | board | admin
   me: null, profiles: [], categories: [], links: [],
+  words: null, wq: '',       // dictionary entries (null = the dictionary table isn't in the database yet) and its search text
   admin: { members: [], pending: [] },
   filter: 'all', q: '', error: '', signInError: '',
 };
@@ -430,12 +477,13 @@ async function refresh() {
     const user = await api.user();
     if (!user) {
       S.mode = 'signin'; S.me = null;
-      chatStop();
+      chatStop(); boardStop();
       return render();
     }
     const d = await api.load();
-    if (!d.me || !d.me.active) { S.mode = 'removed'; chatStop(); return render(); }
+    if (!d.me || !d.me.active) { S.mode = 'removed'; chatStop(); boardStop(); return render(); }
     Object.assign(S, { mode: 'app', me: d.me, profiles: d.profiles, categories: d.categories, links: d.links });
+    S.words = await api.loadWords().catch(() => null);   // if the dictionary can't be loaded, the rest of the site still works
     if (S.filter !== 'all' && !byId(S.categories, S.filter)) S.filter = 'all';
     if (S.view === 'admin') {
       if (S.me.is_admin) S.admin = await api.adminData(); else S.view = 'links';
@@ -507,23 +555,27 @@ function viewApp() {
   const go = async (view) => {
     S.view = view;
     if (view === 'admin') { try { S.admin = await api.adminData(); } catch (e) { toast(e.message, true); S.view = 'links'; } }
+    if (view === 'board') boardStart();
     render(); window.scrollTo(0, 0);
   };
+  const tab = (view, label) => h('button', { class: 'tab' + (S.view === view ? ' on' : ''), 'aria-current': S.view === view ? 'page' : null, onclick: () => go(view) }, label);
+  // The white button adds to whatever section is open. The board has its own tools, so it gets no button.
+  const add = S.view === 'dictionary' ? ['Add word', () => wordDialog()] : S.view === 'board' ? null : ['Add link', () => linkDialog()];
 
   const nav = h('header', { class: 'nav' },
     h('button', { class: 'brand', onclick: () => go('links'), 'aria-label': 'Lunchbreak Links, home' }, brandMark(), h('span', null, 'Lunchbreak Links')),
-    S.me.is_admin && h('nav', { class: 'tabs' },
-      h('button', { class: 'tab' + (S.view === 'links' ? ' on' : ''), onclick: () => go('links') }, 'Links'),
-      h('button', { class: 'tab' + (S.view === 'admin' ? ' on' : ''), onclick: () => go('admin') }, 'Admin')),
+    h('nav', { class: 'tabs', 'aria-label': 'Sections' },
+      tab('links', 'Links'), tab('dictionary', 'Dictionary'), tab('board', 'Board'),
+      S.me.is_admin && tab('admin', 'Admin')),
     h('button', { class: 'icon-btn chat-btn' + (chat.unread ? ' has-new' : ''), 'data-count': unreadLabel(), onclick: () => toggleChat(),
       'aria-label': chat.unread ? 'Chat, ' + unreadLabel() + ' unread' : 'Chat', title: 'Chat' }, icon('chat')),
-    h('button', { class: 'btn primary', onclick: () => linkDialog(), 'aria-label': 'Add link' }, icon('plus'), h('span', { class: 'label' }, 'Add link')),
+    add && h('button', { class: 'btn primary', onclick: add[1], 'aria-label': add[0] }, icon('plus'), h('span', { class: 'label' }, add[0])),
     h('button', { class: 'avatar-btn', onclick: profileDialog, 'aria-label': 'Your profile' }, avatar(S.me)));
 
   return h('div', { class: 'wrap' },
     api.preview && h('div', { class: 'banner' }, 'Preview mode: this is sample data. Changes disappear when you reload the page.'),
     nav,
-    S.view === 'admin' ? viewAdmin() : viewLinks());
+    S.view === 'admin' ? viewAdmin() : S.view === 'dictionary' ? viewDictionary() : S.view === 'board' ? viewBoard() : viewLinks());
 }
 
 function viewLinks() {
@@ -588,6 +640,292 @@ function linkCard(l) {
         h('button', { class: 'icon-btn', 'aria-label': 'Edit ' + l.name, title: 'Edit', onclick: () => linkDialog(l) }, icon('edit')),
         h('button', { class: 'icon-btn', 'aria-label': 'Delete ' + l.name, title: 'Delete',
           onclick: () => confirmDialog('Delete this link?', '"' + l.name + '" will be removed for everyone.', 'Delete', () => act(() => api.deleteLink(l.id), 'Link deleted')) }, icon('trash')))));
+}
+
+/* ---------- dictionary ---------- *
+ * Words that don't exist, or just sound odd, that someone said. Anyone can add one. */
+
+const canEditWord = (w) => S.me && (S.me.is_admin || w.added_by === S.me.id);
+
+function viewDictionary() {
+  const head = (extra) => h('section', { class: 'hero' },
+    h('h1', null, 'Dictionary'),
+    h('p', null, 'Words we made up, misheard, or just like the sound of.'),
+    extra);
+
+  if (S.words === null) {
+    return h('main', null, head(),
+      h('div', { class: 'empty' }, h('h3', null, "The dictionary isn't switched on yet"), 'It needs one setup step in the database first.'));
+  }
+
+  const grid = h('div', { class: 'grid words' });
+  const draw = () => {
+    const q = S.wq.trim().toLowerCase();
+    const shown = S.words
+      .filter((w) => !q || (w.word + ' ' + w.meaning + ' ' + w.said_by).toLowerCase().includes(q))
+      .sort((a, b) => a.word.localeCompare(b.word, undefined, { sensitivity: 'base' }));
+    if (!shown.length) {
+      grid.replaceChildren(S.words.length
+        ? h('div', { class: 'empty' }, h('h3', null, 'No words match'), 'Try another search.')
+        : h('div', { class: 'empty' }, h('h3', null, 'No words yet'), 'Heard a good one? Write it down before it gets lost.',
+            h('div', null, h('button', { class: 'btn primary', onclick: () => wordDialog() }, icon('plus'), 'Add word'))));
+      return;
+    }
+    grid.replaceChildren(...shown.map(wordCard));
+  };
+  draw();
+
+  return h('main', null,
+    head(h('label', { class: 'search' }, icon('search'),
+      h('input', { type: 'search', placeholder: 'Search words', 'aria-label': 'Search words', value: S.wq,
+        oninput: (e) => { S.wq = e.target.value; draw(); } }))),
+    grid);
+}
+
+function wordCard(w) {
+  const who = byId(S.profiles, w.added_by);
+  return h('article', { class: 'card word' },
+    h('h3', null, w.word),
+    w.meaning ? h('p', { class: 'meaning' }, w.meaning) : h('p', { class: 'meaning none-yet' }, 'No explanation. It speaks for itself.'),
+    w.said_by && h('p', { class: 'said' }, 'Said by ' + w.said_by),
+    h('div', { class: 'card-foot' },
+      avatar(who, 'sm'),
+      h('span', { class: 'who' }, (who?.display_name || 'Former member') + ' · ' + ago(w.created_at)),
+      canEditWord(w) && h('div', { class: 'card-actions' },
+        h('button', { class: 'icon-btn', 'aria-label': 'Edit ' + w.word, title: 'Edit', onclick: () => wordDialog(w) }, icon('edit')),
+        h('button', { class: 'icon-btn', 'aria-label': 'Delete ' + w.word, title: 'Delete',
+          onclick: () => confirmDialog('Delete this word?', '"' + w.word + '" will be removed for everyone.', 'Delete', () => act(() => api.deleteWord(w.id), 'Word deleted')) }, icon('trash')))));
+}
+
+function wordDialog(entry) {
+  if (S.words === null) { toast("The dictionary isn't switched on yet.", true); return; }
+  dialog((close) => {
+    const err = h('p', { class: 'err', role: 'alert' });
+    const word = h('input', { class: 'input', maxLength: 60, placeholder: 'e.g. Snaccident', value: entry?.word || '' });
+    const meaning = h('textarea', { class: 'input area', maxLength: 500, rows: 3, placeholder: 'What it means, or the story behind it', value: entry?.meaning || '' });
+    const said = h('input', { class: 'input', maxLength: 40, placeholder: 'A name, if they are fine with it', value: entry?.said_by || '' });
+    const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
+
+    // Same idea as the duplicate warning for links: tell people when the word is already in.
+    const dup = h('p', { class: 'warn', role: 'status' });
+    const checkDup = () => {
+      const v = word.value.trim().toLowerCase();
+      const twin = v && S.words.find((x) => x.id !== entry?.id && x.word.trim().toLowerCase() === v);
+      const who = twin && byId(S.profiles, twin.added_by)?.display_name;
+      dup.textContent = twin ? 'Already in the dictionary' + (who ? ', added by ' + who : '') + '.' : '';
+      save.textContent = twin ? (entry ? 'Save anyway' : 'Add anyway') : 'Save';
+    };
+    word.addEventListener('input', checkDup);
+    checkDup();
+
+    const form = h('form', {
+      novalidate: true, class: 'dlg-in',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const data = { word: word.value.trim(), meaning: meaning.value.trim(), said_by: said.value.trim() };
+        if (!data.word) { err.textContent = 'Type the word.'; word.focus(); return; }
+        save.disabled = true;
+        const done = await act(() => (entry ? api.updateWord(entry.id, data) : api.addWord(data)), entry ? 'Word updated' : 'Word added');
+        if (done) close(); else save.disabled = false;
+      },
+    },
+      h('h2', null, entry ? 'Edit word' : 'Add a word'),
+      h('label', { class: 'field' }, h('span', null, 'Word'), word),
+      dup,
+      h('label', { class: 'field' }, h('span', null, 'Explanation (optional)'), meaning),
+      h('label', { class: 'field' }, h('span', null, 'Who said it (optional)'), said),
+      err,
+      h('div', { class: 'dlg-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), save));
+    form.style.padding = '0';
+    return form;
+  });
+}
+
+/* ---------- board ---------- *
+ * One shared drawing board. Every finished piece of a line is saved as a "stroke", and
+ * everyone who has the board open gets it straight away. The board element is built once
+ * and kept, so a line you are in the middle of drawing survives the page redrawing. */
+
+const BOARD_W = 1600, BOARD_H = 1000, BOARD_BG = '#101013';   // the board is always 1600 x 1000 inside, whatever size it is shown at
+const PENS = ['#f5f5f7', '#f7d038', '#ff7a59', '#f0527a', '#8b7cf6', '#4c9df8', '#34c77b'];
+const PEN_SIZES = [4, 10, 22];
+const STROKE_MAX = 120;   // points per saved piece: long lines are sent in pieces so others see them while you draw
+
+const board = { status: 'idle',   // idle | loading | ok | off (off = the board table isn't in the database yet)
+  el: null, canvas: null, ctx: null, tools: null, stop: null,
+  strokes: [], live: null, color: PENS[0], size: PEN_SIZES[1], erasing: false, queued: false, lastFail: 0 };
+
+function viewBoard() {
+  const head = h('div', { class: 'page-head' }, h('h1', null, 'Board'),
+    h('p', null, 'One board for everyone. Draw something, and whoever has it open sees it too.'));
+  if (board.status === 'off') {
+    return h('main', null, head,
+      h('div', { class: 'empty' }, h('h3', null, "The board isn't switched on yet"), 'It needs one setup step in the database first.'));
+  }
+  if (!board.el) boardBuild();
+  return h('main', null, head, board.el);
+}
+
+async function boardStart() {
+  if (board.status === 'ok' || board.status === 'loading') return;
+  board.status = 'loading';
+  if (!board.el) boardBuild();
+  try {
+    board.strokes = await api.loadStrokes();
+  } catch {
+    board.status = 'off';
+    if (S.view === 'board') render();
+    return;
+  }
+  board.stop = api.subscribeBoard(boardAdd, boardRemove);
+  board.status = 'ok';
+  boardRedraw();
+}
+
+function boardStop() {
+  board.stop?.();
+  Object.assign(board, { status: 'idle', el: null, canvas: null, ctx: null, tools: null, stop: null, strokes: [], live: null });
+}
+
+/** Fetches the board again, keeping any of your own pieces that are still on their way to the database. */
+async function boardReload() {
+  if (board.status !== 'ok') return;
+  try {
+    const rows = await api.loadStrokes();
+    board.strokes = [...rows, ...board.strokes.filter((x) => x.id == null)];
+    boardRedraw();
+  } catch { /* keep what is on screen */ }
+}
+
+function strokePaint(ctx, st) {
+  const p = st.points;
+  if (!Array.isArray(p) || p.length < 2) return;
+  const erase = st.color === 'erase';
+  ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = erase ? '#000' : safeColor(st.color);
+  ctx.lineWidth = Math.min(80, Math.max(1, Number(st.size) || 4));
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p[0], p[1]);
+  if (p.length < 4) ctx.lineTo(p[0] + 0.01, p[1]);   // a single tap makes a dot
+  for (let i = 2; i + 1 < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+  ctx.stroke();
+}
+
+function boardRedraw() {
+  if (!board.ctx) return;
+  board.ctx.clearRect(0, 0, BOARD_W, BOARD_H);
+  for (const st of board.strokes) strokePaint(board.ctx, st);
+  if (board.live) strokePaint(board.ctx, board.live);
+}
+
+/** Several changes arriving at once (for example the board being cleared) cause one redraw, not hundreds. */
+function boardRedrawSoon() {
+  if (board.queued) return;
+  board.queued = true;
+  requestAnimationFrame(() => { board.queued = false; boardRedraw(); });
+}
+
+// Saved strokes go in the order the database got them; pieces still on their way stay on top.
+const strokeOrder = (a, b) => (a.id == null ? (b.id == null ? 0 : 1) : b.id == null ? -1 : a.id - b.id);
+
+function boardAdd(row) {
+  if (board.status !== 'ok' || board.strokes.some((x) => x.id === row.id)) return;
+  board.strokes.push({ id: row.id, user_id: row.user_id, color: row.color, size: row.size, points: row.points });
+  board.strokes.sort(strokeOrder);
+  boardRedrawSoon();
+}
+
+function boardRemove(id) {
+  if (board.status !== 'ok') return;
+  board.strokes = board.strokes.filter((x) => x.id !== id);
+  boardRedrawSoon();
+}
+
+/** Saves one finished piece of a line. It is already on your screen; this sends it to everyone else. */
+async function boardCommit(st) {
+  board.strokes.push(st);   // no id yet: it counts as "on its way"
+  try {
+    const row = await api.addStroke({ color: st.color, size: st.size, points: st.points });
+    if (board.strokes.some((x) => x.id === row.id)) board.strokes = board.strokes.filter((x) => x !== st);   // the live update got here first
+    else { st.id = row.id; st.user_id = row.user_id; board.strokes.sort(strokeOrder); }
+  } catch (e) {
+    board.strokes = board.strokes.filter((x) => x !== st);
+    boardRedrawSoon();
+    if (Date.now() - board.lastFail > 5000) { board.lastFail = Date.now(); toast("Couldn't save what you drew. " + e.message, true); }
+  }
+}
+
+function boardBuild() {
+  const canvas = h('canvas', { class: 'board-canvas', width: BOARD_W, height: BOARD_H, 'aria-label': 'Shared drawing board' });
+  board.canvas = canvas;
+  board.ctx = canvas.getContext('2d');
+
+  const at = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) * BOARD_W / r.width), Math.round((e.clientY - r.top) * BOARD_H / r.height)];
+  };
+  const finish = (carryOn) => {
+    const st = board.live;
+    if (!st) return;
+    board.live = carryOn ? { color: st.color, size: st.size, points: st.points.slice(-2) } : null;   // the next piece starts where this one ended
+    boardCommit(st);
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button || board.status !== 'ok') return;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    board.live = { color: board.erasing ? 'erase' : board.color, size: board.erasing ? board.size * 3 : board.size, points: at(e) };
+    strokePaint(board.ctx, board.live);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const st = board.live;
+    if (!st) return;
+    const [x, y] = at(e), n = st.points.length;
+    if (st.points[n - 2] === x && st.points[n - 1] === y) return;
+    st.points.push(x, y);
+    strokePaint(board.ctx, { color: st.color, size: st.size, points: st.points.slice(-4) });   // paint only the new bit
+    if (st.points.length >= STROKE_MAX * 2) finish(true);
+  });
+  for (const ev of ['pointerup', 'pointercancel']) canvas.addEventListener(ev, () => finish(false));
+
+  board.tools = h('div', { class: 'board-tools' });
+  board.el = h('div', { class: 'board' }, board.tools, canvas);
+  boardTools();
+}
+
+function boardTools() {
+  const pick = (change) => () => { Object.assign(board, change); boardTools(); };
+  board.tools.replaceChildren(
+    h('div', { class: 'swatches', role: 'group', 'aria-label': 'Pen colour' }, PENS.map((c) => h('button', {
+      type: 'button', class: 'swatch' + (!board.erasing && board.color === c ? ' on' : ''), vars: { '--c': c },
+      'aria-label': 'Colour ' + c, 'aria-pressed': String(!board.erasing && board.color === c), onclick: pick({ color: c, erasing: false }) }))),
+    h('div', { class: 'pen-sizes', role: 'group', 'aria-label': 'Pen size' }, PEN_SIZES.map((n, i) => h('button', {
+      type: 'button', class: 'pen-size' + (board.size === n ? ' on' : ''), vars: { '--d': (6 + i * 5) + 'px' },
+      'aria-label': ['Thin', 'Medium', 'Thick'][i], title: ['Thin', 'Medium', 'Thick'][i], 'aria-pressed': String(board.size === n), onclick: pick({ size: n }) }))),
+    h('button', { type: 'button', class: 'btn small' + (board.erasing ? ' active' : ''), 'aria-pressed': String(board.erasing), onclick: pick({ erasing: !board.erasing }) }, 'Eraser'),
+    h('span', { class: 'gap' }),
+    h('button', { type: 'button', class: 'btn small', onclick: boardSave }, 'Save as image'),
+    h('button', { type: 'button', class: 'btn small danger',
+      onclick: () => confirmDialog('Clear the board?', 'Everything on it is erased for everyone. Save it as an image first if you want to keep it.', 'Clear', async () => {
+        try { await api.clearBoard(); board.strokes = []; boardRedraw(); toast('Board cleared'); } catch (e) { toast(e.message, true); }
+      }) }, 'Clear'));
+}
+
+/** Downloads the board as a picture, on the same dark background it has on the site. */
+function boardSave() {
+  const out = h('canvas', { width: BOARD_W, height: BOARD_H });
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = BOARD_BG;
+  ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+  ctx.drawImage(board.canvas, 0, 0);
+  out.toBlob((blob) => {
+    if (!blob) { toast("Couldn't make the image.", true); return; }
+    const url = URL.createObjectURL(blob);
+    const a = h('a', { href: url, download: 'lunchbreak-board-' + new Date().toISOString().slice(0, 10) + '.png' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }, 'image/png');
 }
 
 /* ---------- dialogs ---------- */
@@ -1038,7 +1376,7 @@ async function start() {
   addEventListener('pagehide', visitSave);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) visitSave(); else newSince = visitRead() || newSince;
-    if (!document.hidden && S.mode === 'app' && !document.querySelector('dialog[open]') && document.activeElement?.tagName !== 'INPUT') { refresh(); if (chat.ready) chatReload(); }
+    if (!document.hidden && S.mode === 'app' && !document.querySelector('dialog[open]') && document.activeElement?.tagName !== 'INPUT') { refresh(); if (chat.ready) chatReload(); boardReload(); }
   });
   await refresh();
 }

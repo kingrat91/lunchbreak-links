@@ -319,3 +319,41 @@ dialog.dlg::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(3px)
   vertical-align: text-bottom; background: var(--muted);
 }
 @media (max-width: 600px) { .hero .typed { min-height: 3.2em; font-size: 14px; } }
+
+/* ---------- Header on narrower screens: the section tabs drop to their own row ---------- */
+@media (max-width: 860px) {
+  .nav { flex-wrap: wrap; border-radius: 28px; }
+  .tabs { order: 9; width: 100%; justify-content: center; padding-bottom: 2px; }
+}
+
+/* ---------- Dictionary ---------- */
+.card.word { gap: 8px; }
+.card.word h3 { font-size: 22px; padding-right: 76px; }
+.card.word .meaning { color: #dcdce2; white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; }
+.card.word .meaning.none-yet { color: var(--faint); font-style: italic; }
+.card.word .said { color: var(--muted); font-size: 14px; }
+.card.word .card-foot { margin-top: 6px; }
+.input.area { height: auto; min-height: 92px; padding: 11px 14px; resize: vertical; line-height: 1.45; font: inherit; color: inherit; }
+
+/* ---------- Board ---------- */
+.board { display: grid; gap: 12px; }
+.board-tools {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.board-tools .gap { flex: 1; }
+.board-tools .swatch { width: 28px; height: 28px; }
+.pen-sizes { display: flex; gap: 4px; }
+.pen-size {
+  --d: 8px; width: 34px; height: 34px; padding: 0; border-radius: 50%; display: grid; place-items: center;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.pen-size::before { content: ''; width: var(--d); height: var(--d); border-radius: 50%; background: var(--muted); }
+.pen-size.on { border-color: #fff; }
+.pen-size.on::before { background: #fff; }
+.btn.active { background: #fff; color: #0a0a0c; border-color: #fff; }
+.board-canvas {
+  display: block; width: 100%; height: auto; aspect-ratio: 16 / 10;
+  background: #101013; border: 1px solid var(--border-strong); border-radius: var(--radius);
+  cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none;
+}

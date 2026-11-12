@@ -6,7 +6,7 @@ A private, invite-only site where a small team shares links to games and useful 
 - **Hosting:** GitHub Pages (this repository, branch `main`)
 - **Accounts, data and chat:** Supabase, free plan
 - **Sign-in:** Google only, limited to people on the invite list
-- **Current file version:** `?v=16` (the next change uses `?v=17`)
+- **Current file version:** `?v=17` (the next change uses `?v=18`)
 
 ## How this log works
 
@@ -23,6 +23,7 @@ Changes to this file itself don't need a version bump, because the site never lo
 
 | # | Date | Committed | Pushed | Version | What changed |
 |---|---|---|---|---|---|
+| 13 | 12 Nov 2026 | not committed yet | not pushed yet | v=17 | **Dictionary and Board.** The header now has section tabs for everyone: Links, Dictionary, Board (plus Admin for the admin). The white button follows the section: "Add link" on Links, "Add word" on Dictionary, none on Board. **Dictionary:** anyone can add a word with an optional explanation and an optional "said by"; alphabetical, with search and a warning when the word is already in; edit or delete your own, admin can do any. **Board:** one shared drawing board with seven colours, three pen sizes, an eraser, "Save as image" and "Clear"; other people see your lines as you draw, and the drawing stays until someone clears it. On narrower screens the tabs sit on a second row of the header. New file `supabase/dictionary-board.sql` adds the two tables and must be run once in Supabase; until then both sections show "isn't switched on yet" and the rest of the site works as before. |
 | 12 | 12 Nov 2026 | not committed yet | not pushed yet | v=16 | Added `.gitignore` so the private working notes file (`handoff.md`) stays on the computer and never goes to GitHub. No change to the site. |
 | 11 | 12 Nov 2026 | not committed yet | not pushed yet | v=16 | **Unread count, duplicate warning and New badge.** The red dot on the chat button is now a count of unread messages from other people (shows 9+ above nine). Add link and Edit link warn when the address is already on the site and name the existing link; saving is still possible with \"Add anyway\". Link cards show a white \"New\" badge on links other people added since your last visit (remembered per browser). |
 | 10 | 10 Nov 2026 | 14:43 | 14:43 | v=15 | **Chat notification sound.** A soft two-note chime plays when someone else posts a chat message while the chat panel is closed or the site is in a background tab. Made by the browser, no audio file. Always on, messages only (reactions are silent). Browsers only allow it after the first click on the page. |
@@ -39,6 +40,8 @@ Changes to this file itself don't need a version bump, because the site never lo
 ## Still to confirm with real accounts
 
 - Live chat between two people, and the unread dot
+- The board with two people drawing at the same time, and clearing it
+- A member editing or deleting only their own dictionary words
 - Member permissions: no admin page, edit and delete own links only
 - A non-invited account being refused
 - Removing and re-inviting a member
