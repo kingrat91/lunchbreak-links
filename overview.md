@@ -23,6 +23,7 @@ Changes to this file itself don't need a version bump, because the site never lo
 
 | # | Date | Committed | Pushed | Version | What changed |
 |---|---|---|---|---|---|
+| 12 | 12 Nov 2026 | not committed yet | not pushed yet | v=16 | Added `.gitignore` so the private working notes file (`handoff.md`) stays on the computer and never goes to GitHub. No change to the site. |
 | 11 | 12 Nov 2026 | not committed yet | not pushed yet | v=16 | **Unread count, duplicate warning and New badge.** The red dot on the chat button is now a count of unread messages from other people (shows 9+ above nine). Add link and Edit link warn when the address is already on the site and name the existing link; saving is still possible with \"Add anyway\". Link cards show a white \"New\" badge on links other people added since your last visit (remembered per browser). |
 | 10 | 10 Nov 2026 | 14:43 | 14:43 | v=15 | **Chat notification sound.** A soft two-note chime plays when someone else posts a chat message while the chat panel is closed or the site is in a background tab. Made by the browser, no audio file. Always on, messages only (reactions are silent). Browsers only allow it after the first click on the page. |
 | 9 | 10 Nov 2026 | 14:05 | 14:05 | v=14 | **Chat reactions.** A smiley button on each chat message opens a row of six quick reactions (👍 ❤️ 😂 😮 💀 🐀). Several per person per message; click your own again to take it back. Hovering a reaction shows who gave it. New file `supabase/reactions.sql` adds the reactions table and must be run once in Supabase. |
