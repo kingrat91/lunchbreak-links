@@ -6,7 +6,7 @@ A private, invite-only site where a small team shares links to games and useful 
 - **Hosting:** GitHub Pages (this repository, branch `main`)
 - **Accounts, data and chat:** Supabase, free plan
 - **Sign-in:** Google only, limited to people on the invite list
-- **Current file version:** `?v=15` (the next change uses `?v=16`)
+- **Current file version:** `?v=16` (the next change uses `?v=17`)
 
 ## How this log works
 
@@ -23,9 +23,10 @@ Changes to this file itself don't need a version bump, because the site never lo
 
 | # | Date | Committed | Pushed | Version | What changed |
 |---|---|---|---|---|---|
-| 10 | 10 Nov 2026 | not committed yet | not pushed yet | v=15 | **Chat notification sound.** A soft two-note chime plays when someone else posts a chat message while the chat panel is closed or the site is in a background tab. Made by the browser, no audio file. Always on, messages only (reactions are silent). Browsers only allow it after the first click on the page. |
-| 9 | 10 Nov 2026 | not committed yet | not pushed yet | v=14 | **Chat reactions.** A smiley button on each chat message opens a row of six quick reactions (👍 ❤️ 😂 😮 💀 🐀). Several per person per message; click your own again to take it back. Hovering a reaction shows who gave it. New file `supabase/reactions.sql` adds the reactions table and must be run once in Supabase. |
-| 8 | 10 Nov 2026 | not committed yet | not pushed yet | v=13 | Added this overview and change log (`overview.md`). No change to the site. |
+| 11 | 12 Nov 2026 | not committed yet | not pushed yet | v=16 | **Unread count, duplicate warning and New badge.** The red dot on the chat button is now a count of unread messages from other people (shows 9+ above nine). Add link and Edit link warn when the address is already on the site and name the existing link; saving is still possible with \"Add anyway\". Link cards show a white \"New\" badge on links other people added since your last visit (remembered per browser). |
+| 10 | 10 Nov 2026 | 14:43 | 14:43 | v=15 | **Chat notification sound.** A soft two-note chime plays when someone else posts a chat message while the chat panel is closed or the site is in a background tab. Made by the browser, no audio file. Always on, messages only (reactions are silent). Browsers only allow it after the first click on the page. |
+| 9 | 10 Nov 2026 | 14:05 | 14:05 | v=14 | **Chat reactions.** A smiley button on each chat message opens a row of six quick reactions (👍 ❤️ 😂 😮 💀 🐀). Several per person per message; click your own again to take it back. Hovering a reaction shows who gave it. New file `supabase/reactions.sql` adds the reactions table and must be run once in Supabase. |
+| 8 | 10 Nov 2026 | 14:05 | 14:05 | v=13 | Added this overview and change log (`overview.md`). No change to the site. |
 | 7 | 10 Nov 2026 | 13:47 | 13:47 | v=13 | **More welcome lines and new emoji set.** More sentences for the typewriter line under the welcome heading. Profile avatars reworked: animals (including a rat), nature, spooky and food; no "item" emojis. |
 | 6 | 10 Nov 2026 | 13:34 | 13:34 | | **Welcome lines, more animals and colours.** Typewriter line under "Take a break, <first name>." replaced "N links shared by the team". More animal avatars. 14 profile colours, shared with category colours. |
 | 5 | 10 Nov 2026 | 12:47 | 12:47 | | **Add background typing and preselect category.** Add link now preselects the category of the open tab. A faint background typing animation was added here and removed later the same day (too distracting). |

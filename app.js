@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=15';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=16';
 
 /* ------------------------------------------------------------------ *
  *  Lunchbreak Links
@@ -179,6 +179,22 @@ function signInProblem() {
     ? "That Google account isn't on the invite list. Ask the admin for an invitation, then try again."
     : "Sign-in didn't complete. Please try again.";
 }
+
+/** Two addresses count as the same link if they only differ by http/https, "www.", capitals in the site name or a final slash. */
+function sameUrlKey(url) {
+  try {
+    const u = new URL(url);
+    return u.hostname.toLowerCase().replace(/^www\./, '') + u.pathname.replace(/\/+$/, '') + u.search;
+  } catch { return String(url || '').trim().toLowerCase(); }
+}
+
+/* "New" badge: links other people added since the last time you had the site open.
+ * The time of your last visit is remembered in this browser only. */
+const VISIT_KEY = 'lunchbreak-last-visit';
+const visitRead = () => { try { return Number(localStorage.getItem(VISIT_KEY)) || 0; } catch { return 0; } };
+const visitSave = () => { try { localStorage.setItem(VISIT_KEY, String(Date.now())); } catch { /* private window: fine */ } };
+let newSince = visitRead() || Date.now();   // very first visit: nothing is marked new
+const isNew = (l) => l.added_by !== S.me?.id && new Date(l.created_at).getTime() > newSince;
 
 function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
@@ -499,7 +515,8 @@ function viewApp() {
     S.me.is_admin && h('nav', { class: 'tabs' },
       h('button', { class: 'tab' + (S.view === 'links' ? ' on' : ''), onclick: () => go('links') }, 'Links'),
       h('button', { class: 'tab' + (S.view === 'admin' ? ' on' : ''), onclick: () => go('admin') }, 'Admin')),
-    h('button', { class: 'icon-btn chat-btn' + (chat.unread ? ' has-new' : ''), onclick: () => toggleChat(), 'aria-label': 'Chat', title: 'Chat' }, icon('chat')),
+    h('button', { class: 'icon-btn chat-btn' + (chat.unread ? ' has-new' : ''), 'data-count': unreadLabel(), onclick: () => toggleChat(),
+      'aria-label': chat.unread ? 'Chat, ' + unreadLabel() + ' unread' : 'Chat', title: 'Chat' }, icon('chat')),
     h('button', { class: 'btn primary', onclick: () => linkDialog(), 'aria-label': 'Add link' }, icon('plus'), h('span', { class: 'label' }, 'Add link')),
     h('button', { class: 'avatar-btn', onclick: profileDialog, 'aria-label': 'Your profile' }, avatar(S.me)));
 
@@ -559,7 +576,9 @@ function linkCard(l) {
   const who = byId(S.profiles, l.added_by);
   return h('article', { class: 'card' },
     h('a', { class: 'card-link', href: cleanUrl(l.url) || '#', target: '_blank', rel: 'noopener noreferrer' },
-      h('span', { class: 'chip', vars: { '--c': safeColor(cat?.color) } }, cat?.name || 'Uncategorised'),
+      h('span', { class: 'card-top' },
+        h('span', { class: 'chip', vars: { '--c': safeColor(cat?.color) } }, cat?.name || 'Uncategorised'),
+        isNew(l) && h('span', { class: 'new-badge' }, 'New')),
       h('h3', null, l.name),
       h('span', { class: 'host' }, hostOf(l.url), icon('out'))),
     h('div', { class: 'card-foot' },
@@ -605,6 +624,21 @@ function linkDialog(link) {
       S.categories.map((c) => h('option', { value: c.id, selected: link ? link.category_id === c.id : S.filter === c.id }, c.name)));
     const save = h('button', { class: 'btn primary', type: 'submit' }, 'Save');
 
+    // Duplicate warning: shown as soon as the address matches a link that is already on the site.
+    const dup = h('p', { class: 'warn', role: 'status' });
+    const checkDup = () => {
+      const clean = cleanUrl(url.value);
+      const twin = clean && S.links.find((x) => x.id !== link?.id && sameUrlKey(x.url) === sameUrlKey(clean));
+      if (twin) {
+        const where = byId(S.categories, twin.category_id)?.name;
+        const who = byId(S.profiles, twin.added_by)?.display_name;
+        dup.textContent = 'Already on the site: "' + twin.name + '"' + (where ? ' in ' + where : '') + (who ? ', added by ' + who : '') + '.';
+      } else dup.textContent = '';
+      save.textContent = twin ? (link ? 'Save anyway' : 'Add anyway') : 'Save';
+    };
+    url.addEventListener('input', checkDup);
+    checkDup();
+
     const form = h('form', {
       novalidate: true, class: 'dlg-in',
       onsubmit: async (e) => {
@@ -621,6 +655,7 @@ function linkDialog(link) {
       h('h2', null, link ? 'Edit link' : 'Add a link'),
       h('label', { class: 'field' }, h('span', null, 'Name'), name),
       h('label', { class: 'field' }, h('span', null, 'URL'), url),
+      dup,
       h('label', { class: 'field' }, h('span', null, 'Category'), cat),
       err,
       h('div', { class: 'dlg-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), save));
@@ -775,10 +810,11 @@ function viewAdmin() {
  * One shared room in a slide-out panel. The panel lives outside the main
  * page area so it stays put while the rest of the page redraws.          */
 
-const chat = { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null,
+const chat = { ready: false, open: false, unread: 0, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null,
   reacts: [],      // every reaction on the loaded messages: { message_id, user_id, emoji }
   picking: null }; // id of the message whose reaction row is open
 const SEEN_KEY = 'lunchbreak-chat-seen';
+const unreadLabel = () => (chat.unread > 9 ? '9+' : String(chat.unread || ''));   // what the red badge on the chat button says
 const getSeen = () => { try { return Number(localStorage.getItem(SEEN_KEY)) || 0; } catch { return 0; } };
 const setSeen = (id) => { try { localStorage.setItem(SEEN_KEY, String(id)); } catch { /* private window: fine */ } };
 
@@ -826,7 +862,7 @@ function chatStop() {
   chat.stop?.();
   chat.el?.remove();
   document.body.classList.remove('chat-open');
-  Object.assign(chat, { ready: false, open: false, unread: false, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null, reacts: [], picking: null });
+  Object.assign(chat, { ready: false, open: false, unread: 0, msgs: [], hasMore: false, el: null, list: null, input: null, stop: null, reacts: [], picking: null });
 }
 
 async function chatReload() {
@@ -975,11 +1011,16 @@ function chatDraw(toBottom) {
 
   if (toBottom || nearBottom) el.scrollTop = el.scrollHeight;
 
-  // Unread dot on the chat button
+  // Unread count on the chat button: messages from other people that arrived since you last had the chat open.
   const last = chat.msgs[chat.msgs.length - 1];
-  if (chat.open) { if (last) setSeen(last.id); chat.unread = false; }
-  else chat.unread = !!last && last.id > getSeen() && last.author !== S.me?.id;
-  document.querySelector('.chat-btn')?.classList.toggle('has-new', chat.unread);
+  if (chat.open) { if (last) setSeen(last.id); chat.unread = 0; }
+  else { const seen = getSeen(); chat.unread = chat.msgs.filter((m) => m.id > seen && m.author !== S.me?.id).length; }
+  const btn = document.querySelector('.chat-btn');
+  if (btn) {
+    btn.classList.toggle('has-new', chat.unread > 0);
+    btn.dataset.count = unreadLabel();
+    btn.setAttribute('aria-label', chat.unread ? 'Chat, ' + unreadLabel() + ' unread' : 'Chat');
+  }
 }
 
 /* ---------- start ---------- */
@@ -994,7 +1035,9 @@ async function start() {
   for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, audioUnlock, { passive: true });
   api.onAuth(() => { if (!document.querySelector('dialog[open]')) refresh(); });
   // Pick up other people's changes when you come back to the tab.
+  addEventListener('pagehide', visitSave);
   document.addEventListener('visibilitychange', () => {
+    if (document.hidden) visitSave(); else newSince = visitRead() || newSince;
     if (!document.hidden && S.mode === 'app' && !document.querySelector('dialog[open]') && document.activeElement?.tagName !== 'INPUT') { refresh(); if (chat.ready) chatReload(); }
   });
   await refresh();

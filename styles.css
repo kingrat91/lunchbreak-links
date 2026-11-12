@@ -140,6 +140,11 @@ button.chip.plain.on { color: #0a0a0c; background: #fff; border-color: #fff; }
 .card:hover { border-color: var(--border-strong); background: #17171b; transform: translateY(-2px); }
 .card-link { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; text-decoration: none; flex: 1; }
 .card-link::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius); }
+.card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.new-badge {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px;
+  background: #fff; color: #0a0a0c; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+}
 .card h3 { font-size: 19px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .host { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
 .host .ic svg { width: 13px; height: 13px; }
@@ -182,6 +187,8 @@ button.chip.plain.on { color: #0a0a0c; background: #fff; border-color: #fff; }
 select.input { appearance: none; padding-right: 38px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1.5l5 5 5-5' stroke='%23a0a0ab' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; }
 .err { color: #ff8aa5; font-size: 14px; min-height: 0; }
 .err:empty { display: none; }
+.warn { color: #f7c36a; font-size: 14px; margin-top: -6px; }
+.warn:empty { display: none; }
 
 /* ---------- Dialog ---------- */
 dialog.dlg {
@@ -229,8 +236,9 @@ dialog.dlg::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(3px)
 .chat-btn { position: relative; }
 .chat-btn.has-new { color: var(--text); }
 .chat-btn.has-new::after {
-  content: ''; position: absolute; top: 1px; right: 1px; width: 11px; height: 11px; border-radius: 50%;
-  background: var(--danger); border: 2px solid var(--surface);
+  content: attr(data-count); position: absolute; top: -5px; right: -5px; box-sizing: border-box;
+  min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; display: grid; place-items: center;
+  background: var(--danger); border: 2px solid var(--surface); color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
 }
 .chat {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
